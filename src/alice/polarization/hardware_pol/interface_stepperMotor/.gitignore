@@ -1,0 +1,7 @@
+.qodo
+.venv
+test
+__pycache__
+imports/__pycache__
+imports/.pytest_cache
+tests/__pycache__

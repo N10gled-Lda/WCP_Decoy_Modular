@@ -1,0 +1,79 @@
+# configs/config.yaml
+# This file contains the configuration for the WCP Decoy-State BB84 QKD Simulator.
+# QKD Simulation Configuration
+# Configuration for WCP Decoy-State BB84 QKD Simulator
+
+
+# Simulation parameters
+simulation:
+  pulses_total:       100_000_000
+  num_threads:        4
+  random_seed:        42
+  logging_level:      "INFO"        # DEBUG/INFO/WARN/ERROR
+# Output control
+output:
+  save_raw_data:      true
+  save_inter_results: true
+  output_dir:         "runs/"
+  file_prefix:        "qkd_sim"
+
+# Timing and clock configuration  
+clock:
+  repetition_rate_Hz: 1000000       # 1 MHz
+  duty_cycle:         0.10
+  frame_length:       1048576       # 2^20 pulses per frame
+
+# Laser configuration
+laser:
+  central_wavelength_nm:  1550.0
+  linewidth_Hz:           1000000
+  max_power_mW:           10.0
+  pulse_width_fwhm_ps:    100.0
+  timing_jitter_ps:       5.0
+
+# Modulation configuration
+modulation:
+  polarization_extinction_ratio_dB: 20.0
+  polarization_intensity_noise_dB:  -150.0
+  wavelength_stability_pm:          10.0
+  polarization_drift_deg_per_h:     0.0
+
+# Decoy state scheme
+decoy_scheme:
+  intensities:                  # Mean photon numbers
+    signal:        0.50
+    weak:          0.10
+    vacuum:        0.0
+  probabilities:                # Must sum to 1.0
+    signal:        0.7
+    weak:          0.2
+    vacuum:        0.1
+
+# Quantum channel configuration
+channel:
+  length_km:            20.0
+  fiber_loss_db_km:     0.20
+  pol_drift_deg_rms:    2.0
+  background_rate_Hz:   5.0e-6  # Background counts per pulse
+  depolarization_rate:  0.01
+
+# Eavesdropping simulation (optional)
+eavesdropping:
+  enabled:              false
+  attack_type:          "pns"   # intercept_resend, beam_splitting, pns
+  intercept_prob:       0.1
+
+# Optical table configuration
+optical_table:
+  insertion_loss_dB:    0.2
+  pol_extinct_ratio_dB: 25
+  align_stability_deg:  0.01
+
+# Detector configuration
+detectors:
+  id1:
+    number:             4
+    efficiency:         0.75
+    dark_count_rate_Hz: 4.0e-6
+    jitter_ps:          40.0
+    dead_time_ns:       60.0
