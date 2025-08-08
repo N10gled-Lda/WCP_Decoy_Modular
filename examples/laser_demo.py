@@ -13,7 +13,8 @@ from src.alice.laser.laser_hardware import HardwareLaserDriver
 from src.alice.laser.laser_simulator import SimulatedLaserDriver
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -151,16 +152,25 @@ def main():
     """Main demo function."""
     logger.info("Starting laser controller demo...")
     
-    # Test both modes
-    success = test_both_modes()
+    # # Test both modes
+    # success = test_both_modes()
     
-    if success:
-        logger.info("\n🎉 Laser controller demo completed successfully!")
-    else:
-        logger.error("\n💥 Laser controller demo failed!")
+    # if success:
+    #     logger.info("\n🎉 Laser controller demo completed successfully!")
+    # else:
+    #     logger.error("\n💥 Laser controller demo failed!")
     
-    return success
+    # return success
 
+    # Test hardware
+    success = test_hardware_laser()
+    if success:
+        logger.info("\n🎉 Hardware laser controller demo completed successfully!")
+    else:
+        logger.error("\n💥 Hardware laser controller demo failed!")
+
+    # Return success status
+    return success
 
 if __name__ == "__main__":
     main()

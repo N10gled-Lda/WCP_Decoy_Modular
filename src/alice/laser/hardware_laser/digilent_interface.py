@@ -18,15 +18,16 @@ except OSError:
     print("Warning: WaveForms SDK not found. Hardware functionality will be limited.")
 
 # Import constants (fallback if not available)
-try:
-    from dwfconstants import *
-except ImportError:
-    # Fallback constants if dwfconstants is not available
-    hdwfNone = c_int(0)
-    DwfStateReady = c_ubyte(0)
-    DwfStateDone = c_ubyte(2)
-    funcDC = c_ubyte(0)
-    funcPulse = c_ubyte(7)
+from .dwfconstants import *
+# try:
+#     from dwfconstants import *
+# except ImportError:
+#     # Fallback constants if dwfconstants is not available
+#     hdwfNone = c_int(0)
+#     DwfStateReady = c_ubyte(0)
+#     DwfStateDone = c_ubyte(2)
+#     funcDC = c_ubyte(0)
+#     funcPulse = c_ubyte(7)
 
 
 class TriggerMode(Enum):
@@ -39,7 +40,7 @@ class TriggerMode(Enum):
 class DigilentInterface:
     """Interface for controlling laser through Digilent device using WaveForms SDK."""
     
-    def __init__(self, device_index: int = -1):
+    def __init__(self, device_index: int = -1, auto_configure: c_int = DWFUser.AutoConfigure.DISABLED.value):
         """
         Initialize the Digilent interface.
         
@@ -51,6 +52,7 @@ class DigilentInterface:
         # Device management
         self.dwf = dwf
         self.hdwf = c_int()
+        self.autoConfigure = auto_configure  # Auto Configure setting
         self.device_index = device_index
         self.connected = False
         self.running = False
@@ -88,7 +90,7 @@ class DigilentInterface:
             # Open device
             if self.device_index == -1:
                 # Open first available device
-                self.dwf.FDwfDeviceOpen(c_int(-1), byref(self.hdwf))
+                self.dwf.FDwfDeviceOpen(DWFUser.Devices.FIRST.value, byref(self.hdwf))
             else:
                 self.dwf.FDwfDeviceOpen(c_int(self.device_index), byref(self.hdwf))
             
@@ -121,8 +123,9 @@ class DigilentInterface:
         if self.connected and self.hdwf.value != hdwfNone.value:
             try:
                 # Reset all analog outputs
-                self.dwf.FDwfAnalogOutReset(self.hdwf, c_int(-1))
-                self.dwf.FDwfAnalogOutConfigure(self.hdwf, c_int(-1), c_bool(False))
+                self.dwf.FDwfAnalogOutReset(self.hdwf, DWFUser.ALL_CHANNELS)
+                self.dwf.FDwfAnalogOutConfigure(self.hdwf, DWFUser.ALL_CHANNELS, DWFUser.OutputBehaviour.APPLY.value)
+                # self.dwf.FDwfAnalogOutConfigure(self.hdwf, DWFUser.ALL_CHANNELS, c_bool(False))
                 
                 # Close device
                 self.dwf.FDwfDeviceClose(self.hdwf)
@@ -140,7 +143,7 @@ class DigilentInterface:
         """Configure the device for laser triggering."""
         try:
             # Enable auto-configuration for immediate updates
-            self.dwf.FDwfDeviceAutoConfigureSet(self.hdwf, c_int(1))
+            self.dwf.FDwfDeviceAutoConfigureSet(self.hdwf, self.autoConfigure)
             
             # Configure trigger channel
             channel = c_int(self.trigger_channel)
@@ -171,6 +174,8 @@ class DigilentInterface:
             amplitude: Pulse amplitude in volts
             width: Pulse width in seconds
             frequency: Repetition frequency in Hz
+        
+        Using the enum DWFUser.AnalogOutFunctions for function selection
         """
         self.pulse_amplitude = amplitude
         self.pulse_width = width
@@ -188,8 +193,11 @@ class DigilentInterface:
                 
                 # Calculate duty cycle from pulse width and frequency
                 duty_cycle = width * frequency * 100  # Convert to percentage
+                if duty_cycle > 90.0:
+                    self.logger.warning(f"Duty cycle {duty_cycle}% exceeds 90%, clamping to 90%")
                 duty_cycle = min(90.0, max(1.0, duty_cycle))  # Clamp between 1% and 90%
-                
+                self.logger.debug(f"Setting duty cycle: {duty_cycle}%")
+
                 # Set symmetry (duty cycle)
                 self.dwf.FDwfAnalogOutSymmetrySet(self.hdwf, channel, c_double(duty_cycle))
                 
@@ -226,6 +234,7 @@ class DigilentInterface:
             
             # Stop output
             self.dwf.FDwfAnalogOutConfigure(self.hdwf, channel, c_bool(False))
+            # self.dwf.FDwfAnalogOutConfigure(self.hdwf, channel, DWFUser.OutputBehaviour.STOP.value)
             
             self.logger.debug("Single pulse fired")
             
