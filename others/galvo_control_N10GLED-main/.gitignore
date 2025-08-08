@@ -1,0 +1,3 @@
+.venv/
+__pycache__/
+thorlabs_tsi_sdk/
