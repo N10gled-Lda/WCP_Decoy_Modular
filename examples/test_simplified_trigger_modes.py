@@ -50,59 +50,61 @@ def test_trigger_modes():
     # Test the three modes
     try:
         interface = DigilentDigitalInterface(device_index=-1, digital_channel=8)
-        with interface:
-            if not interface.connected:
-                print("❌ Failed to connect to device")
-                return False
-                
-            print("✅ Connected successfully")
+        sucess = interface.connect()
+        print("\n\n🔌 Initializing DigilentDigitalInterface...")
+        # with interface:
+        if not sucess:
+            print("❌ Failed to connect to device")
+            return False
             
-            # Configure pulse parameters
-            interface.set_pulse_parameters(
-                width=1e-6,      # 1 microsecond
-                frequency=1000.0, # 1 kHz
-                idle_state=False  # Idle low
-            )
-            # Print new configuration
-            print(f"📊 Pulse configuration:"
-                  f"\n   • Pulse width: {interface.pulse_width:.1f} μs"
-                  f"\n   • Frequency: {interface.frequency:.1f} Hz"
-                  f"\n   • Idle state: {'HIGH' if interface.idle_state else 'LOW'}")
-            
-            # Test 1: SINGLE mode
-            print(f"\n🔸 Testing {DigitalTriggerMode.SINGLE.value} mode...")
-            success = interface.trigger_laser(mode="single")
-            print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
-            time.sleep(0.5)
-            
-            # Test 2: TRAIN mode
-            print(f"\n🔸 Testing {DigitalTriggerMode.TRAIN.value} mode (5 pulses at 2 kHz)...")
-            success = interface.trigger_laser(mode="train", count=5, frequency=2000.0)
-            if success:
-                time.sleep(5/2000.0 + 0.1)  # Wait for completion
-            print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
-            time.sleep(0.5)
-            
-            # Test 3: CONTINUOUS mode (run for 1 second)
-            print(f"\n🔸 Testing {DigitalTriggerMode.CONTINUOUS.value} mode (1 second at 500 Hz)...")
-            success = interface.trigger_laser(mode="continuous", frequency=500.0)
-            if success:
-                print("   ⏳ Running continuous mode for 1 second...")
-                time.sleep(1.0)
-                interface.stop()
-                print("   ⏹️ Stopped continuous mode")
-            print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
-            
-            # Show final status
-            status = interface.get_status()
-            print(f"\n📊 Final status:")
-            print(f"   • Pulse count: {status['pulse_count']}")
-            print(f"   • Error count: {status['error_count']}")
-            print(f"   • Channel: {status['channel']}")
-            print(f"   • Pulse width: {status['pulse_width_us']:.1f} μs")
-            print(f"   • Frequency: {status['frequency_hz']:.1f} Hz")
-            
-            return True
+        print("✅ Connected successfully")
+        
+        # Configure pulse parameters
+        interface.set_pulse_parameters(
+            width=1e-6,      # 1 microsecond
+            frequency=1000.0, # 1 kHz
+            idle_state=False  # Idle low
+        )
+        # Print new configuration
+        print(f"📊 Pulse configuration:"
+                f"\n   • Pulse width: {interface.pulse_width:.1f} μs"
+                f"\n   • Frequency: {interface.frequency:.1f} Hz"
+                f"\n   • Idle state: {'HIGH' if interface.idle_state else 'LOW'}")
+        
+        # Test 1: SINGLE mode
+        print(f"\n🔸 Testing {DigitalTriggerMode.SINGLE.value} mode...")
+        success = interface.trigger_laser(mode="single")
+        print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
+        time.sleep(0.5)
+        
+        # Test 2: TRAIN mode
+        print(f"\n🔸 Testing {DigitalTriggerMode.TRAIN.value} mode (5 pulses at 2 kHz)...")
+        success = interface.trigger_laser(mode="train", count=5, frequency=2000.0)
+        if success:
+            time.sleep(5/2000.0 + 0.1)  # Wait for completion
+        print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
+        time.sleep(0.5)
+        
+        # Test 3: CONTINUOUS mode (run for 1 second)
+        print(f"\n🔸 Testing {DigitalTriggerMode.CONTINUOUS.value} mode (1 second at 500 Hz)...")
+        success = interface.trigger_laser(mode="continuous", frequency=500.0)
+        if success:
+            print("   ⏳ Running continuous mode for 1 second...")
+            time.sleep(1.0)
+            interface.stop()
+            print("   ⏹️ Stopped continuous mode")
+        print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
+        
+        # Show final status
+        status = interface.get_status()
+        print(f"\n📊 Final status:")
+        print(f"   • Pulse count: {status['pulse_count']}")
+        print(f"   • Error count: {status['error_count']}")
+        print(f"   • Channel: {status['channel']}")
+        print(f"   • Pulse width: {status['pulse_width_us']:.1f} μs")
+        print(f"   • Frequency: {status['frequency_hz']:.1f} Hz")
+        
+        return True
             
     except Exception as e:
         print(f"❌ Error during testing: {e}")
@@ -115,23 +117,22 @@ def test_invalid_mode():
     
     try:
         interface = DigilentDigitalInterface(device_index=-1, digital_channel=8)
-        with interface:
-            if interface.connected:
-                # Try to use the old BURST mode (should fail)
-                success = interface.trigger_laser(mode="burst", count=5)
-                if not success:
-                    print("   ✅ Invalid mode 'burst' properly rejected")
-                else:
-                    print("   ❌ Invalid mode 'burst' was accepted (unexpected)")
-                
-                # Try another invalid mode
-                success = interface.trigger_laser(mode="invalid_mode")
-                if not success:
-                    print("   ✅ Invalid mode 'invalid_mode' properly rejected")
-                else:
-                    print("   ❌ Invalid mode 'invalid_mode' was accepted (unexpected)")
+        if interface.connected:
+            # Try to use the old BURST mode (should fail)
+            success = interface.trigger_laser(mode="burst", count=5)
+            if not success:
+                print("   ✅ Invalid mode 'burst' properly rejected")
             else:
-                print("   ⚠️ Could not test (device not connected)")
+                print("   ❌ Invalid mode 'burst' was accepted (unexpected)")
+            
+            # Try another invalid mode
+            success = interface.trigger_laser(mode="invalid_mode")
+            if not success:
+                print("   ✅ Invalid mode 'invalid_mode' properly rejected")
+            else:
+                print("   ❌ Invalid mode 'invalid_mode' was accepted (unexpected)")
+        else:
+            print("   ⚠️ Could not test (device not connected)")
                 
     except Exception as e:
         print(f"   ❌ Error testing invalid modes: {e}")

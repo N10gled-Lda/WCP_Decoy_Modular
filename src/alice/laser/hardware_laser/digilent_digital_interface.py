@@ -176,14 +176,16 @@ class DigilentDigitalInterface:
     def _configure_digital_io(self) -> bool:
         """Configure the digital I/O settings."""
         try:
+            self.logger.debug("Configuring digital I/O...")
             # Enable digital out
             if self.dwf.FDwfDigitalOutEnableSet(self.hdwf, c_int(self.digital_channel), c_int(1)) != 1:
                 self.logger.error("Failed to enable digital output")
                 return False
             
             # Set idle state (low by default)
+            # FDwfDigitalOutIdleSet(HDWF hdwf, int idxChannel, DwfDigitalOutIdle v)
             idle_value = DwfDigitalOutIdleHigh if self.idle_state else DwfDigitalOutIdleLow
-            if self.dwf.FDwfDigitalOutIdleSet(self.hdwf, c_int(self.digital_channel), c_int(idle_value)) != 1:
+            if self.dwf.FDwfDigitalOutIdleSet(self.hdwf, c_int(self.digital_channel), idle_value) != 1:
                 self.logger.error("Failed to set idle state")
                 return False
             
