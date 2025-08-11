@@ -32,8 +32,7 @@ class HardwareLaserDriver(BaseLaserDriver):
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         
         # Initialize Digilent interface
-        self.digilent = DigilentInterface(device_index=device_index)
-        self.digilent.trigger_channel = trigger_channel
+        self.digilent = DigilentInterface(device_index=device_index, trigger_channel=trigger_channel)
         
         # Laser state
         self._is_on = False

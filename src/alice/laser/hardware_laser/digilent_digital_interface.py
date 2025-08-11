@@ -1,4 +1,17 @@
-"""Digilent Digital Interface for Laser Control using WaveForms SDK."""
+"""
+Digilent Digital Interface for Laser Control using WaveForms SDK.
+
+This module provides a simplified interface for controlling lasers via digital
+trigger signals using Digilent devices. The interface supports three core
+trigger modes that cover all practical laser control scenarios:
+
+- SINGLE: Send one trigger pulse (rising edge) for single laser pulse
+- TRAIN: Send N trigger pulses at specified frequency for pulse trains  
+- CONTINUOUS: Send continuous trigger pulses for continuous laser operation
+
+Since laser triggering is typically edge-triggered, these three modes provide
+complete coverage of laser control requirements.
+"""
 import logging
 import threading
 import time
@@ -18,36 +31,47 @@ except OSError:
     print("Warning: WaveForms SDK not found. Hardware functionality will be limited.")
 
 # Import constants (fallback if not available)
-try:
-    from .dwfconstants import *
-except ImportError:
-    # Fallback constants for digital I/O
-    class DwfDigitalOut:
-        IDLE_INIT = 0
-        IDLE_LOW = 1
-        IDLE_HIGH = 2
-        IDLE_ZET = 3
+# try:
+from .dwfconstants import *
+# except ImportError:
+#     # Fallback constants for digital I/O
+#     class DwfDigitalOut:
+#         IDLE_INIT = 0
+#         IDLE_LOW = 1
+#         IDLE_HIGH = 2
+#         IDLE_ZET = 3
     
-    class DwfState:
-        READY = 0
-        ARMED = 1
-        WAIT = 2
-        TRIGGERED = 3
-        RUNNING = 4
-        DONE = 5
+#     class DwfState:
+#         READY = 0
+#         ARMED = 1
+#         WAIT = 2
+#         TRIGGERED = 3
+#         RUNNING = 4
+#         DONE = 5
 
 
 class DigitalTriggerMode(Enum):
     """Digital trigger modes for laser control."""
-    SINGLE_PULSE = "single_pulse"
-    PULSE_TRAIN = "pulse_train"
+    SINGLE = "single"
+    TRAIN = "train"
     CONTINUOUS = "continuous"
-    BURST = "burst"
 
 
 class DigilentDigitalInterface:
-    """Interface for controlling laser through Digilent device using digital channels."""
-    
+    """Interface for controlling laser through Digilent device using digital channels.
+    Hardware emits rising edges; higher-level 'modes' are just scheduling strategies.
+    This class provides methods to:
+    - Connect / disconnect from the device
+    - Set pulse parameters (width, frequency, idle state)
+    - Trigger laser in SINGLE, TRAIN, or CONTINUOUS modes:
+      - send_single_pulse() for one pulse
+      - start_pulse_train(n_pulses, frequency) for multiple pulses at specified frequency
+      - start_continuous(frequency) for continuous pulses at specified frequency
+    - Stop pulse generation
+    - Get current status (connected, running, pulse parameters)
+    - Monitor status and handle callbacks for events
+    """
+        
     def __init__(self, device_index: int = -1, digital_channel: int = 8):
         """
         Initialize the Digilent digital interface.
@@ -81,13 +105,29 @@ class DigilentDigitalInterface:
         self.last_pulse_time = 0.0
         self.error_count = 0
         
+        # Callbacks
+        self.on_connected: Optional[Callable] = None
+        self.on_disconnected: Optional[Callable] = None
+        self.on_pulse_complete: Optional[Callable] = None
+        self.on_error: Optional[Callable] = None
+
         self.logger.info(f"DigilentDigitalInterface initialized for channel {digital_channel}")
     
     def connect(self) -> bool:
-        """Connect to the Digilent device."""
+        """
+        Connect to the Digilent device.
+        
+        Returns:
+            bool: True if connection was successful, False otherwise
+        """
+
         if not self.dwf:
             self.logger.error("WaveForms SDK not available")
             return False
+        
+        if self.connected:
+            self.logger.warning("Already connected to a Digilent device")
+            return True
         
         try:
             # Enumerate devices
@@ -101,18 +141,32 @@ class DigilentDigitalInterface:
             self.logger.info(f"Found {cdevices.value} Digilent device(s)")
             
             # Open device
-            device_idx = self.device_index if self.device_index >= 0 else 0
-            if self.dwf.FDwfDeviceOpen(c_int(device_idx), byref(self.hdwf)) != 1:
-                self.logger.error(f"Failed to open device {device_idx}")
+            if self.device_index == -1:
+                # Open first available device
+                self.dwf.FDwfDeviceOpen(DWFUser.Devices.FIRST.value, byref(self.hdwf))
+            elif self.device_index >= 0:
+                self.dwf.FDwfDeviceOpen(c_int(self.device_index), byref(self.hdwf))
+            else:
+                self.logger.error(f"Invalid device index: {self.device_index}")
+                return False
+            if self.hdwf.value == hdwfNone.value:
+                error_msg = create_string_buffer(512)
+                self.dwf.FDwfGetLastErrorMsg(error_msg)
+                self.logger.error(f"Failed to open device: {error_msg.value.decode()}")
                 return False
             
             # Configure digital I/O
             if not self._configure_digital_io():
-                self.close()
+                self.disconnect()
                 return False
             
             self.connected = True
             self.logger.info(f"Connected to Digilent device, using digital channel {self.digital_channel}")
+            
+            # Trigger on connected callback
+            if self.on_connected:
+                self.on_connected()
+            
             return True
             
         except Exception as e:
@@ -128,7 +182,7 @@ class DigilentDigitalInterface:
                 return False
             
             # Set idle state (low by default)
-            idle_value = DwfDigitalOut.IDLE_HIGH if self.idle_state else DwfDigitalOut.IDLE_LOW
+            idle_value = DwfDigitalOutIdleHigh if self.idle_state else DwfDigitalOutIdleLow
             if self.dwf.FDwfDigitalOutIdleSet(self.hdwf, c_int(self.digital_channel), c_int(idle_value)) != 1:
                 self.logger.error("Failed to set idle state")
                 return False
@@ -144,26 +198,38 @@ class DigilentDigitalInterface:
             return False
     
     def _update_pulse_parameters(self):
-        """Update pulse parameters on the device."""
         try:
-            # Set frequency (period)
-            period_seconds = 1.0 / self.frequency
-            if self.dwf.FDwfDigitalOutDividerSet(self.hdwf, c_int(self.digital_channel), c_int(1)) != 1:
-                self.logger.warning("Failed to set divider")
+            # internal sample-clock (100 MHz) ÷ divider → sample_rate
+            divider = 1 # TODO: allow setting divider for different sample rates
+            self.dwf.FDwfDigitalOutDividerSet(self.hdwf, c_int(self.digital_channel), c_int(divider))
+
+            internal_clock = c_double()
+            if self.dwf.FDwfDigitalOutInternalClockInfo(self.hdwf, byref(internal_clock)) != 1:
+                self.logger.error("Failed to get internal clock info - defaulting to 100 MHz")
+                internal_clock.value = 100e6
+            else:
+                self.logger.debug(f"Internal clock frequency: {internal_clock.value} Hz")
             
-            # Calculate counter values for the pulse
-            # Assuming 100 MHz internal clock
-            internal_freq = 100e6
-            counter_max = int(period_seconds * internal_freq)
-            pulse_counter = int(self.pulse_width * internal_freq)
-            
-            # Set counter values
-            if self.dwf.FDwfDigitalOutCounterSet(self.hdwf, c_int(self.digital_channel), 
-                                               c_int(pulse_counter), c_int(counter_max)) != 1:
+            sample_rate = internal_clock.value / divider
+            period_ticks = int(sample_rate / self.frequency)
+            pulse_ticks  = int(self.pulse_width * sample_rate)
+
+            low_ticks  = period_ticks - pulse_ticks
+            high_ticks = pulse_ticks
+
+            # API expects low then high counts typically (depending on version). We'll assume (low, high)
+            # low then high
+            if self.dwf.FDwfDigitalOutCounterSet(
+                    self.hdwf,
+                    c_int(self.digital_channel),
+                    c_int(low_ticks),
+                    c_int(high_ticks)) != 1:
                 self.logger.warning("Failed to set counter values")
-            
-            self.logger.debug(f"Updated pulse parameters: width={self.pulse_width*1e6:.1f}μs, freq={self.frequency:.1f}Hz")
-            
+
+            self.logger.debug(
+                f"Updated pulse parameters: width={self.pulse_width*1e6:.1f}μs "
+                f"({high_ticks} clk), freq={self.frequency:.1f}Hz "
+                f"(period {period_ticks} clk)")
         except Exception as e:
             self.logger.error(f"Error updating pulse parameters: {e}")
     
@@ -175,6 +241,7 @@ class DigilentDigitalInterface:
             width: Pulse width in seconds
             frequency: Pulse frequency in Hz
             idle_state: Idle state (True=high, False=low)
+            [idle state is the resting logic-level of the digital line when you're not outputting a pulse]
         """
         self.pulse_width = max(1e-9, min(width, 1.0))  # Clamp between 1ns and 1s
         self.frequency = max(0.1, min(frequency, 50e6))  # Clamp between 0.1Hz and 50MHz
@@ -185,6 +252,38 @@ class DigilentDigitalInterface:
         
         self.logger.info(f"Pulse parameters set: width={self.pulse_width*1e6:.1f}μs, "
                         f"freq={self.frequency:.1f}Hz, idle={'HIGH' if idle_state else 'LOW'}")
+    
+    def trigger_laser(self, mode: str = "single", count: int = 1, frequency: float = None) -> bool:
+        """
+        Trigger the laser with specified parameters.
+        
+        Args:
+            mode: "single", "train", or "continuous"
+            count: Number of pulses (ignored for continuous mode)
+            frequency: Pulse frequency in Hz (optional, uses current setting if None)
+            
+        Returns:
+            bool: True if trigger was successful, False otherwise
+        """
+        if not self.connected:
+            self.logger.error("Device not connected")
+            return False
+        
+        # Validate mode
+        valid_modes = [m.value for m in DigitalTriggerMode]
+        if mode not in valid_modes:
+            self.logger.error(f"Invalid mode '{mode}'. Valid modes: {valid_modes}")
+            return False
+        
+        # Execute the appropriate trigger method
+        if mode == DigitalTriggerMode.SINGLE.value:
+            return self.send_single_pulse()
+        elif mode == DigitalTriggerMode.TRAIN.value:
+            return self.start_pulse_train(count, frequency)
+        elif mode == DigitalTriggerMode.CONTINUOUS.value:
+            return self.start_continuous(frequency)
+        
+        return False
     
     def send_single_pulse(self) -> bool:
         """Send a single pulse."""
@@ -199,7 +298,7 @@ class DigilentDigitalInterface:
                 return False
             
             # Start the pulse
-            if self.dwf.FDwfDigitalOutConfigure(self.hdwf, c_int(1)) != 1:
+            if self.dwf.FDwfDigitalOutConfigure(self.hdwf, DWFUser.OutputBehaviour.START.value) != 1:
                 self.logger.error("Failed to start pulse")
                 return False
             
@@ -210,11 +309,20 @@ class DigilentDigitalInterface:
             self.last_pulse_time = time.time()
             
             self.logger.debug("Single pulse sent")
+
+            # Trigger on pulse complete callback
+            if self.on_pulse_complete:
+                self.on_pulse_complete()
+
             return True
             
         except Exception as e:
             self.logger.error(f"Error sending single pulse: {e}")
             self.error_count += 1
+
+            if self.on_error:
+                self.on_error(str(e))
+
             return False
     
     def start_pulse_train(self, n_pulses: int, frequency: float = None) -> bool:
@@ -255,6 +363,10 @@ class DigilentDigitalInterface:
         except Exception as e:
             self.logger.error(f"Error starting pulse train: {e}")
             self.error_count += 1
+
+            if self.on_error:
+                self.on_error(str(e))
+
             return False
     
     def start_continuous(self, frequency: float = None) -> bool:
@@ -275,7 +387,7 @@ class DigilentDigitalInterface:
             
             # Configure for continuous mode
             if self.dwf.FDwfDigitalOutRepeatSet(self.hdwf, c_int(self.digital_channel), c_int(0)) != 1:
-                self.logger.error("Failed to set continuous mode")
+                self.logger.error("Failed to set continuous mode") # 0 means infinite repeats
                 return False
             
             # Start continuous pulses
@@ -292,6 +404,10 @@ class DigilentDigitalInterface:
         except Exception as e:
             self.logger.error(f"Error starting continuous pulses: {e}")
             self.error_count += 1
+
+            if self.on_error:
+                self.on_error(str(e))
+
             return False
     
     def stop(self) -> bool:
@@ -321,9 +437,9 @@ class DigilentDigitalInterface:
             try:
                 sts = c_int()
                 if self.dwf.FDwfDigitalOutStatus(self.hdwf, byref(sts)) == 1:
-                    if sts.value == DwfState.DONE:
+                    if sts.value == DwfStateDone:
                         break
-                time.sleep(0.001)  # 1ms polling
+                time.sleep(0.0001)  # 100us polling
             except:
                 break
     
@@ -357,34 +473,44 @@ class DigilentDigitalInterface:
         self._callback = callback
         self.logger.info("Callback function set")
     
-    def close(self):
+    def disconnect(self):
         """Close the connection to the device."""
         if self.running:
             self.stop()
         
         if self.connected and self.hdwf.value != 0:
             try:
+                # Reset the device
+                self.dwf.FDwfDigitalOutReset(self.hdwf)
+                self.logger.info("Device reset")
+                self.dwf.FDwfDigitalOutConfigure(self.hdwf, DWFUser.OutputBehaviour.STOP.value)
+                self.logger.info("Device configuration reset")
+                # Close the device
                 self.dwf.FDwfDeviceClose(self.hdwf)
                 self.logger.info("Device connection closed")
+                
+                self.connected = False
+                # Trigger on disconnected callback
+                if self.on_disconnected:
+                    self.on_disconnected()
             except:
                 pass
         
-        self.connected = False
         self.hdwf = c_int()
     
-    def __enter__(self):
-        """Context manager entry."""
-        if not self.connected:
-            self.connect()
-        return self
+    # def __enter__(self):
+    #     """Context manager entry."""
+    #     if not self.connected:
+    #         self.connect()
+    #     return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
-        self.close()
+        self.disconnect()
     
     def __del__(self):
         """Destructor."""
-        self.close()
+        self.disconnect()
 
 
 # Utility functions for digital interface

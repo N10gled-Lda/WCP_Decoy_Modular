@@ -34,18 +34,20 @@ class TriggerMode(Enum):
     """Trigger modes for laser control."""
     SINGLE = "single"
     CONTINUOUS = "continuous"
-    BURST = "burst"
+    TRAIN = "train"
 
 
 class DigilentInterface:
     """Interface for controlling laser through Digilent device using WaveForms SDK."""
-    
-    def __init__(self, device_index: int = -1, auto_configure: c_int = DWFUser.AutoConfigure.DISABLED.value):
+
+    def __init__(self, device_index: int = -1, trigger_channel: int = 0, auto_configure: c_int = DWFUser.AutoConfigure.DISABLED.value):
         """
         Initialize the Digilent interface.
         
         Args:
             device_index: Index of the Digilent device to use (-1 for first available)
+            trigger_channel: Analog output channel for laser triggering
+            auto_configure: Auto Configure setting (default is disabled)
         """
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         
@@ -58,7 +60,7 @@ class DigilentInterface:
         self.running = False
         
         # Laser control parameters
-        self.trigger_channel = 0  # Analog output channel for trigger
+        self.trigger_channel = trigger_channel  # Analog output channel for trigger
         self.pulse_amplitude = 5.0  # Volts
         self.pulse_width = 1e-6  # 1 microsecond
         self.repetition_rate = 1000.0  # Hz
