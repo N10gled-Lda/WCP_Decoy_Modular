@@ -3,13 +3,12 @@ from functools import wraps
 import logging
 import time
 import threading
-
-
 from typing import Optional, Dict, Any
 from enum import Enum
 from abc import ABC, abstractmethod
 
-from hardware_laser.digilent_digital_interface import DigilentDigitalInterface, DigitalTriggerMode
+from src.alice.laser.hardware_laser.digilent_digital_interface import DigilentDigitalInterface, DigitalTriggerMode
+from src.alice.laser.laser_base import BaseLaserDriver
 
 
 
@@ -45,41 +44,6 @@ class LaserState(Enum):
     FIRING = "firing"
 
 
-class BaseLaserDriver(ABC):
-    """Hardware-independent laser driver interface."""
-
-    def __init__(self):
-        """Initialize base laser driver."""
-        self.state = LaserState.OFF
-
-    @abstractmethod
-    def turn_on(self) -> bool:
-        """Turn on the laser hardware."""
-        pass
-
-    @abstractmethod
-    def turn_off(self) -> bool:
-        """Turn off the laser hardware."""
-        pass
-
-    @abstractmethod
-    def initialize(self) -> bool:
-        """Initialize the laser hardware."""
-        pass
-
-    @abstractmethod
-    def shutdown(self):
-        """Shutdown the laser hardware."""
-        pass
-
-    def get_status(self) -> Dict[str, Any]:
-        """Get basic status information."""
-        return {
-            "state": self.state.value,
-            "timestamp": time.time()
-        }
-
-
 class LaserTriggerMode(Enum):
     """Laser trigger modes."""
     SINGLE = "single"
@@ -105,6 +69,7 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
         self.interface = DigilentDigitalInterface(device_index, digital_channel)
         self.device_index = device_index
         self.digital_channel = digital_channel
+        self.state = LaserState.OFF
         
         # Laser parameters
         self.pulse_width = 1e-6      # 1 microsecond default
@@ -374,14 +339,12 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
     
     def get_status(self) -> Dict[str, Any]:
         """Get comprehensive status information."""
-        base_status = super().get_status()
         
         # Get interface status
         interface_status = self.interface.get_status()
         
         # Combine status information
         status = {
-            **base_status,
             "hardware_type": "digital_digilent",
             "device_index": self.device_index,
             "digital_channel": self.digital_channel,

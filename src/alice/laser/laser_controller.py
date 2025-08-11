@@ -4,53 +4,14 @@ from abc import ABC, abstractmethod
 from typing import Optional, List, Union
 import time
 
+from src.alice.laser.laser_base import BaseLaserDriver
 from src.utils.data_structures import Pulse
 
 
-class BaseLaserDriver(ABC):
-    """Hardware-independent laser driver interface."""
-
-    @abstractmethod
-    def turn_on(self) -> None:
-        """Turn on the laser hardware."""
-
-    @abstractmethod
-    def turn_off(self) -> None:
-        """Turn off the laser hardware."""
-
-    @abstractmethod
-    def stop(self) -> None:
-        """Safely disable emission (e.g. close shutter)."""
-        
-    # Optional: subclasses can override if they support continuous emission
-    def arm(self, repetition_rate_hz: float) -> None:
-        """Prepare the source for a sequence of pulses. No-op by default."""
-        pass
-
-    # Optional: subclasses can override if they support firing a frame directly
-    def fire(self, pattern: List) -> None:
-        """Emit one frame's worth of pulses. No-op by default."""
-        pass
-
-    # Optional: subclasses can override if they support single-shot emission
-    def fire_single_pulse(self) -> None:
-        """Emit a single pulse. No-op by default."""
-        pass
-
-    # Optional: subclasses can override for initialization
-    def initialize(self) -> bool:
-        """Initialize the laser hardware. Returns True if successful."""
-        return True
-
-    # Optional: subclasses can override for shutdown
-    def shutdown(self) -> None:
-        """Shutdown the laser hardware."""
-        pass
-
-
 # MIGHT HAVE ISSUES WITH IMPORTS
-from .laser_simulator import SimulatedLaserDriver
-from .laser_hardware import HardwareLaserDriver
+from src.alice.laser.laser_simulator import SimulatedLaserDriver
+from src.alice.laser.laser_hardware import HardwareLaserDriver
+from src.alice.laser.laser_hardware_digital import DigitalHardwareLaserDriver
 
 
 class LaserController:
@@ -58,7 +19,8 @@ class LaserController:
     Laser controller that holds protocol-level state and delegates physical work to a pluggable driver.
     """
     
-    def __init__(self, driver: BaseLaserDriver):
+    # def __init__(self, driver: BaseLaserDriver):
+    def __init__(self, driver: Union[BaseLaserDriver, SimulatedLaserDriver, HardwareLaserDriver, DigitalHardwareLaserDriver]):
         """
         Initialize the laser controller with a specific driver.
         
