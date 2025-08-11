@@ -3,7 +3,7 @@ import sys
 import os
 
 # Add the project root to Python path
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 import logging
@@ -69,7 +69,8 @@ class DigitalLaserDemo:
         self.logger.info("=== Digital Interface Test ===")
         
         try:
-            with DigilentDigitalInterface(self.device_index, self.digital_channel) as interface:
+            interface = DigilentDigitalInterface(device_index=self.device_index, digital_channel=self.digital_channel)
+            with interface:
                 if not interface.connected:
                     self.logger.error("Failed to connect to device")
                     return False

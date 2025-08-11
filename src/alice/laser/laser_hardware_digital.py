@@ -1,4 +1,5 @@
 """Digital laser hardware driver using Digilent digital channels."""
+from functools import wraps
 import logging
 import time
 import threading
@@ -7,6 +8,18 @@ from enum import Enum
 from abc import ABC, abstractmethod
 
 from .hardware_laser.digilent_digital_interface import DigilentDigitalInterface, DigitalTriggerMode
+
+
+
+def ensure_connected(fn):
+    """Decorator to ensure the laser hardware is connected before operation."""
+    @wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        if not self.interface.connected:
+            self.logger.error("Digilent device is not connected.")
+            raise RuntimeError("Laser hardware must be connected first. Call initialize().")
+        return fn(self, *args, **kwargs)
+    return wrapper
 
 
 class LaserState(Enum):
@@ -56,7 +69,7 @@ class BaseLaserDriver(ABC):
 class LaserTriggerMode(Enum):
     """Laser trigger modes."""
     SINGLE = "single"
-    BURST = "burst"
+    TRAIN = "train"
     CONTINUOUS = "continuous"
 
 
@@ -89,13 +102,39 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
         self.trigger_count = 0
         self.last_trigger_time = 0.0
         self.continuous_mode = False
+        self.idle_state = False  # Idle low 
         
         # Threading for background operations
         self._monitor_thread = None
         self._stop_monitoring = threading.Event()
         
+        # # Set up callbacks
+        # self.interface.on_connected = self._on_connected
+        # self.interface.on_disconnected = self._on_disconnected
+        # self.interface.on_error = self._on_error
+        
         self.logger.info(f"DigitalHardwareLaserDriver initialized for channel {digital_channel}")
     
+    # def _on_connected(self):
+    #     """Callback for when the device is connected."""
+    #     self.logger.info("Digilent device connected")
+    #     self.state = LaserState.READY
+    #     self.interface.set_pulse_parameters(
+    #         width=self.pulse_width,
+    #         frequency=self.frequency,
+    #         idle_state=self.idle_state 
+    #     )
+    
+    # def _on_disconnected(self):
+    #     """Callback for when the device is disconnected."""
+    #     self.logger.warning("Digilent device disconnected")
+    #     self.state = LaserState.OFF
+
+    # def _on_error(self, error: str):
+    #     """Callback for when an error occurs."""
+    #     self.logger.error(f"Digilent device error: {error}")
+    #     self.state = LaserState.ERROR
+
     def initialize(self) -> bool:
         """Initialize the laser hardware."""
         try:
@@ -112,9 +151,6 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
                 frequency=self.frequency,
                 idle_state=False  # Idle low for laser triggering
             )
-            
-            # Set up status callback
-            self.interface.set_callback(self._status_callback)
             
             # Start monitoring thread
             self._start_monitoring()
@@ -143,7 +179,7 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
                 self._monitor_thread.join(timeout=2.0)
             
             # Close hardware interface
-            self.interface.close()
+            self.interface.disconnect()
             
             self.state = LaserState.OFF
             self.logger.info("Digital laser hardware shutdown complete")
@@ -187,6 +223,7 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             self.logger.error(f"Failed to turn off laser: {e}")
             return False
     
+    @ensure_connected
     def trigger_once(self) -> bool:
         """Send a single trigger pulse."""
         if self.state != LaserState.ON:
@@ -311,13 +348,13 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
         
         try:
             self.interface.set_pulse_parameters(
-                width=width,
+                width=self.pulse_width,
                 frequency=self.frequency,
-                idle_state=False
+                idle_state=self.idle_state
             )
-            
-            self.logger.info(f"Pulse parameters updated: width={width*1e6:.1f}μs, freq={self.frequency:.1f}Hz")
-            
+
+            self.logger.info(f"Pulse parameters updated: width={self.pulse_width*1e6:.1f}μs, freq={self.frequency:.1f}Hz, idle_state={'high' if self.idle_state else 'low'}")
+
         except Exception as e:
             self.logger.error(f"Failed to set pulse parameters: {e}")
     
@@ -345,12 +382,6 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
         
         return status
     
-    def _status_callback(self, interface_status: dict):
-        """Callback for interface status updates."""
-        # Update internal state based on interface status
-        if not interface_status.get("connected", False):
-            self.state = LaserState.ERROR
-            self.logger.error("Lost connection to device")
     
     def _start_monitoring(self):
         """Start background monitoring thread."""
@@ -395,8 +426,8 @@ def create_digital_laser_driver(device_index: int = -1, digital_channel: int = 8
     
     Args:
         device_index: Digilent device index (-1 for first available)
-        digital_channel: Digital channel for triggering
-    
+        digital_channel: Digital channel for triggering (default: 8)
+
     Returns:
         Configured DigitalHardwareLaserDriver instance
     """
@@ -412,7 +443,7 @@ if __name__ == "__main__":
     
     # Test with context manager
     with create_digital_laser_driver(digital_channel=8) as laser:
-        if laser.state == LaserState.ERROR:
+        if laser.state == LaserState.ERROR or not laser.interface.connected:
             print("❌ Failed to initialize laser driver")
         else:
             print("✅ Laser driver initialized")
