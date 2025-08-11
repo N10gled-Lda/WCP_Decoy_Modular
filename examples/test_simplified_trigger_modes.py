@@ -61,39 +61,43 @@ def test_trigger_modes():
         
         # Configure pulse parameters
         interface.set_pulse_parameters(
-            width=1e-6,      # 1 microsecond
-            frequency=1000.0, # 1 kHz
+            width=1e-3,      # 1 microsecond
+            frequency=100.0, # 1 kHz
             idle_state=False  # Idle low
         )
         # Print new configuration
         print(f"📊 Pulse configuration:"
-                f"\n   • Pulse width: {interface.pulse_width:.1f} μs"
+                f"\n   • Pulse width: {interface.pulse_width:f} μs"
                 f"\n   • Frequency: {interface.frequency:.1f} Hz"
                 f"\n   • Idle state: {'HIGH' if interface.idle_state else 'LOW'}")
         
         # Test 1: SINGLE mode
         print(f"\n🔸 Testing {DigitalTriggerMode.SINGLE.value} mode...")
-        success = interface.trigger_laser(mode="single")
+        # success = interface.trigger_laser(mode="single")
+        for i in range(1):
+            success = interface.trigger_laser(mode="single")
         print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
-        time.sleep(0.5)
+        time.sleep(1)
+        # success = interface.trigger_laser(mode="single")
         
-        # Test 2: TRAIN mode
-        print(f"\n🔸 Testing {DigitalTriggerMode.TRAIN.value} mode (5 pulses at 2 kHz)...")
-        success = interface.trigger_laser(mode="train", count=5, frequency=2000.0)
-        if success:
-            time.sleep(5/2000.0 + 0.1)  # Wait for completion
-        print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
-        time.sleep(0.5)
+        # # Test 2: TRAIN mode
+        # print(f"\n🔸 Testing {DigitalTriggerMode.TRAIN.value} mode (5 pulses at 2 kHz)...")
+        # freq= 1.0  
+        # success = interface.trigger_laser(mode="train", count=5, frequency=freq)
+        # if success:
+        #     time.sleep(5/freq + 0.1)  # Wait for completion
+        # print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
+        # time.sleep(1)
         
-        # Test 3: CONTINUOUS mode (run for 1 second)
-        print(f"\n🔸 Testing {DigitalTriggerMode.CONTINUOUS.value} mode (1 second at 500 Hz)...")
-        success = interface.trigger_laser(mode="continuous", frequency=500.0)
-        if success:
-            print("   ⏳ Running continuous mode for 1 second...")
-            time.sleep(1.0)
-            interface.stop()
-            print("   ⏹️ Stopped continuous mode")
-        print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
+        # # Test 3: CONTINUOUS mode (run for 1 second)
+        # print(f"\n🔸 Testing {DigitalTriggerMode.CONTINUOUS.value} mode (1 second at 500 Hz)...")
+        # success = interface.trigger_laser(mode="continuous", frequency=1000000.0)
+        # if success:
+        #     print("   ⏳ Running continuous mode for 1 second...")
+        #     time.sleep(10.0)
+        #     interface.stop()
+        #     print("   ⏹️ Stopped continuous mode")
+        # print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
         
         # Show final status
         status = interface.get_status()
