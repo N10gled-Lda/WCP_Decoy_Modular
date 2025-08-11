@@ -7,7 +7,19 @@ from typing import Optional, Dict, Any
 from enum import Enum
 from abc import ABC, abstractmethod
 
-from .hardware_laser.digilent_digital_interface import DigilentDigitalInterface, DigitalTriggerMode
+from hardware_laser.digilent_digital_interface import DigilentDigitalInterface, DigitalTriggerMode
+
+
+
+def ensure_connected(fn):
+    """Decorator to ensure the laser hardware is connected before operation."""
+    @wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        if not self.interface.connected:
+            self.logger.error("Digilent device is not connected.")
+            raise RuntimeError("Laser hardware must be connected first. Call initialize().")
+        return fn(self, *args, **kwargs)
+    return wrapper
 
 
 
