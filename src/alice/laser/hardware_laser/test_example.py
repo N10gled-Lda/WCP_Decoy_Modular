@@ -53,7 +53,7 @@ sWait = 0
 hzSys = c_double()
 maxCnt = c_uint()
 dwf.FDwfDigitalOutInternalClockInfo(hdwf, byref(hzSys))
-dwf.FDwfDigitalOutCounterInfo(hdwf, c_int(0), 0, byref(maxCnt))
+dwf.FDwfDigitalOutCounterInfo(hdwf, c_int(8), 0, byref(maxCnt))
 
 # for low frequencies use divider as pre-scaler to satisfy counter limitation of 32k
 print(f"hzSys: {hzSys.value}, maxCnt: {maxCnt.value}")
@@ -65,10 +65,9 @@ cPulse = int(round(hzSys.value/hzFreq/cDiv))
 cHigh = int(cPulse*prcDuty/100)
 cLow = int(cPulse-cHigh)
 
-print("Generate: "+str(hzSys.value/cPulse/cDiv)+"Hz duty: "+str(100.0*cHigh/cPulse)+"% divider: "+str(cDiv)+"High")
+print("Generate: "+str(hzSys.value/cPulse/cDiv)+"Hz duty: "+str(100.0*cHigh/cPulse)+"% divider: "+str(cDiv)+" High "+str(cHigh)+" Low "+str(cLow))
 print(f"Time per pulse: {cPulse*cDiv/hzSys.value:.6f} s, high: {cHigh*cDiv/hzSys.value:.6f} s, low: {cLow*cDiv/hzSys.value:.6f} s")
 print(f"Total time: {cPulses*(cLow+cHigh)*cDiv/hzSys.value:.6f} s")
-print(f"High: {cHigh}, Low: {cLow}, Pulse: {cPulse}, Divider: {cDiv}")
 
 dwf.FDwfDigitalOutEnableSet(hdwf, c_int(iChannel), c_int(1)) # 
 dwf.FDwfDigitalOutTypeSet(hdwf, c_int(iChannel), DwfDigitalOutTypePulse) # Pulse type - freq = internal clock / divider / counter

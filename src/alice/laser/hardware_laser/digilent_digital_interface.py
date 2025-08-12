@@ -13,6 +13,7 @@ Since laser triggering is typically edge-triggered, these three modes provide
 complete coverage of laser control requirements.
 """
 import logging
+import math
 import threading
 import time
 from ctypes import *
@@ -182,6 +183,11 @@ class DigilentDigitalInterface:
                 self.logger.error("Failed to enable digital output")
                 return False
             
+            # Set Type to Pulse
+            if self.dwf.FDwfDigitalOutTypeSet(self.hdwf, c_int(self.digital_channel), DwfDigitalOutTypePulse) != 1:
+                self.logger.error("Failed to set digital output type to Pulse")
+                return False
+            
             # Set idle state (low by default)
             # FDwfDigitalOutIdleSet(HDWF hdwf, int idxChannel, DwfDigitalOutIdle v)
             # idle_value = DwfDigitalOutIdleHigh if self.idle_state else DwfDigitalOutIdleLow
@@ -202,59 +208,60 @@ class DigilentDigitalInterface:
     def _update_pulse_parameters(self):
         try:
             # internal sample-clock (100 MHz) ÷ divider → sample_rate
-            divider = 1 # TODO: allow setting divider for different sample rates
-            self.dwf.FDwfDigitalOutDividerSet(self.hdwf, c_int(self.digital_channel), c_int(divider))
 
             internal_clock = c_double()
+            max_count = c_uint()
             if self.dwf.FDwfDigitalOutInternalClockInfo(self.hdwf, byref(internal_clock)) != 1:
                 self.logger.error("Failed to get internal clock info - defaulting to 100 MHz")
                 internal_clock.value = 100e6
             else:
                 self.logger.debug(f"Internal clock frequency: {internal_clock.value} Hz")
+            if self.dwf.FDwfDigitalOutCounterInfo(self.hdwf, c_int(self.digital_channel), 0, byref(max_count)) != 1:
+                self.logger.error("Failed to get counter info - defaulting to 32768")
+                max_count.value = 32768
+            else:
+                self.logger.debug(f"Max counter value: {max_count.value}")
+
+            divider = int(math.ceil(internal_clock.value / self.frequency / max_count.value))  # 2 for pulse width
+            self.dwf.FDwfDigitalOutDividerSet(self.hdwf, c_int(self.digital_channel), c_int(divider))
+
+            print(f"Divider set to: {divider} (internal clock {internal_clock.value} Hz / frequency {self.frequency} Hz / max count {max_count.value})")
             
-            print(f"Internal clock frequency: {internal_clock.value} Hz")
-            
-            t_ticks = 1 / internal_clock.value  # Time per tick in seconds
-            self.logger.debug(f"Time per tick: {t_ticks:.1e} s")
-            print(f"Time per tick: {t_ticks:.1e} s")
+            # Calculate low/high ticks based on pulse width
+            pulse_ticks = int(math.ceil(internal_clock.value / self.frequency / divider))
+            duty_cycle = self.pulse_width * self.frequency  # Pulse width in ticks
+            print(f"Duty cycle: {duty_cycle:.6f} of pulse are high")
+            if duty_cycle > 1:
+                self.logger.warning(f"Pulse width {self.pulse_width:.6f}s exceeds pulse period {1/self.frequency:.6f}s, clamping to 50% duty cycle")
+                duty_cycle = 0.5  # Clamp to 50% if exceeds period
 
-
-            sample_rate = internal_clock.value / divider
-            # sample_rate = self.frequency / divider
-            period_ticks = int(sample_rate / self.frequency)
-            pulse_ticks  = int(self.pulse_width * sample_rate)
-
-            low_ticks  = period_ticks - pulse_ticks
-            high_ticks = pulse_ticks
-            high_ticks = 1
-            low_ticks = 1
-            
-            high_ticks = max(1, int(self.pulse_width * sample_rate))                 # largura do pulso
-            period_ticks = max(high_ticks+1, int(sample_rate/self.frequency))      # período >= largura
-            low_ticks  = period_ticks - high_ticks
-
-            n_high = max(1, int(round(self.pulse_width * sample_rate)))
-            low_ticks = 1
-            high_ticks = 1
+            high_ticks = int(round(pulse_ticks * duty_cycle))
+            low_ticks = pulse_ticks - high_ticks
+            t_ticks = 1 / (internal_clock.value / divider)  # Time per tick
 
             print(f"Counter Set Pulse parameters: width={self.pulse_width:f}s, "
                   f"freq={self.frequency:.1f}Hz, "
-                  f"period={period_ticks} clk, "
-                  f"low_ticks={low_ticks}, high_ticks={high_ticks}")
+                  f"pulse={pulse_ticks} clk, "
+                  f"low_ticks={low_ticks}, high_ticks={high_ticks}"
+                  f" (t_tick={t_ticks:.1e}s)")
+            
             # API expects low then high counts typically (depending on version). We'll assume (low, high)
             # low then high
-            self.dwf.FDwfDigitalOutCounterInitSet(self.hdwf, c_int(self.digital_channel), c_int(0)) # 0 - start low
+            fpol = 0  # 0 = low, 1 = high
+            self.dwf.FDwfDigitalOutCounterInitSet(self.hdwf, c_int(self.digital_channel), c_int(fpol), c_int(0)) 
             if self.dwf.FDwfDigitalOutCounterSet(
                     self.hdwf,
                     c_int(self.digital_channel),
                     c_int(low_ticks),
                     c_int(high_ticks)) != 1:
                 self.logger.warning("Failed to set counter values")
+            else:
+                self.logger.info(f"Counter set: low={low_ticks}, high={high_ticks} (pulse {pulse_ticks} clk)")
 
             self.logger.debug(
                 f"Updated pulse parameters: width={self.pulse_width*1e6:.1f}μs "
                 f"({high_ticks} clk), freq={self.frequency:.1f}Hz "
-                f"(period {period_ticks} clk)")
+                f"(pulse {pulse_ticks} clk)")
         except Exception as e:
             self.logger.error(f"Error updating pulse parameters: {e}")
     
@@ -322,17 +329,27 @@ class DigilentDigitalInterface:
             if self.dwf.FDwfDigitalOutRepeatSet(self.hdwf, c_int(1)) != 1:
                 self.logger.error("Failed to set single pulse mode")
                 return False
-            
+            nb_pulses = 1  # Single pulse
+            print(f"Running for {nb_pulses/self.frequency:.5f} s")
+            if self.dwf.FDwfDigitalOutRunSet(self.hdwf, c_double(nb_pulses / self.frequency)) != 1:
+                self.logger.error("Failed to set pulse run time")
+                return False
+
             # Start the pulse
             if self.dwf.FDwfDigitalOutConfigure(self.hdwf, DWFUser.OutputBehaviour.START.value) != 1:
                 self.logger.error("Failed to start pulse")
                 return False
             
-            # print("Here")
-            # # Wait for completion
-            # self._wait_for_completion()
+            print("Here1")
+            # Wait for completion
+            self._wait_for_completion()
             
-            # print("Here")
+            # Stop configuration
+            if self.dwf.FDwfDigitalOutConfigure(self.hdwf, c_int(0)) != 1:
+                self.logger.error("Failed to stop digital output")
+                return False
+            
+            print("Here2")
             self.pulse_count += 1
             self.last_pulse_time = time.time()
             
@@ -368,19 +385,35 @@ class DigilentDigitalInterface:
         try:
             # Update frequency if specified
             if frequency is not None:
-                old_freq = self.frequency
                 self.set_pulse_parameters(self.pulse_width, frequency, self.idle_state)
             
             print(f"Starting pulse train: {n_pulses} pulses at {self.frequency:.1f} Hz")
             # Configure for pulse train
-            if self.dwf.FDwfDigitalOutRepeatSet(self.hdwf, c_int(n_pulses)) != 1:
+            if self.dwf.FDwfDigitalOutRepeatSet(self.hdwf, c_int(1)) != 1:
                 self.logger.error("Failed to set pulse train mode")
                 return False
             
-            # Start the pulse train
-            if self.dwf.FDwfDigitalOutConfigure(self.hdwf, c_int(1)) != 1:
-                self.logger.error("Failed to start pulse train")
+            nb_pulses = n_pulses # Number of pulses to send
+            print(f"Running for {nb_pulses/self.frequency:.5f} s")
+            if self.dwf.FDwfDigitalOutRunSet(self.hdwf, c_double(nb_pulses / self.frequency)) != 1:
+                self.logger.error("Failed to set pulse run time")
                 return False
+
+            # Start the pulse
+            if self.dwf.FDwfDigitalOutConfigure(self.hdwf, DWFUser.OutputBehaviour.START.value) != 1:
+                self.logger.error("Failed to start pulse")
+                return False
+            
+            print("Here1")
+            # Wait for completion
+            self._wait_for_completion()
+            
+            # Stop configuration
+            if self.dwf.FDwfDigitalOutConfigure(self.hdwf, c_int(0)) != 1:
+                self.logger.error("Failed to stop digital output")
+                return False
+            
+            print("Here2")
             
             self.running = True
             self.pulse_count += n_pulses
@@ -418,7 +451,7 @@ class DigilentDigitalInterface:
             if self.dwf.FDwfDigitalOutRepeatSet(self.hdwf, c_int(0)) != 1:
                 self.logger.error("Failed to set continuous mode") # 0 means infinite repeats
                 return False
-            
+             
             # Start continuous pulses
             if self.dwf.FDwfDigitalOutConfigure(self.hdwf, c_int(1)) != 1:
                 self.logger.error("Failed to start continuous pulses")
@@ -463,13 +496,13 @@ class DigilentDigitalInterface:
         start_time = time.time()
         
         while time.time() - start_time < timeout:
+            sts = c_int()
             try:
-                sts = c_int()
                 if self.dwf.FDwfDigitalOutStatus(self.hdwf, byref(sts)) == 1:
                     print(sts.value)
-                    if sts.value == DwfStateDone:
+                    if sts.value == DwfStateDone.value:
                         break
-                time.sleep(0.01)  # 100us polling
+                time.sleep(0.0001)  # 100us polling
             except:
                 break
     
