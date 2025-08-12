@@ -9,6 +9,7 @@
 """
 
 from ctypes import *
+import time
 from dwfconstants import *
 import math
 import sys
@@ -43,11 +44,11 @@ if hdwf.value == 0:
 dwf.FDwfDeviceAutoConfigureSet(hdwf, c_int(0)) 
 
 iChannel = 8
-hzFreq = 1e6 # freq Hz
-prcDuty = 25.0 # duty %
-fPol = 1 # low or high, 0 or 1
-cPulses = 8 
-sWait = 1e-6
+hzFreq = 1e3 # freq Hz
+prcDuty = 50.0 # duty %
+fPol = 0 # low or high, 0 or 1
+cPulses = 2
+sWait = 0
 
 hzSys = c_double()
 maxCnt = c_uint()
@@ -55,27 +56,32 @@ dwf.FDwfDigitalOutInternalClockInfo(hdwf, byref(hzSys))
 dwf.FDwfDigitalOutCounterInfo(hdwf, c_int(0), 0, byref(maxCnt))
 
 # for low frequencies use divider as pre-scaler to satisfy counter limitation of 32k
-cDiv = int(math.ceil(hzSys.value/hzFreq/maxCnt.value))
+print(f"hzSys: {hzSys.value}, maxCnt: {maxCnt.value}")
+# cDiv = int(math.ceil(hzSys.value/hzFreq/2)) # can use 2 instead of maxCnt.value?
+cDiv = int(math.ceil(hzSys.value/hzFreq/maxCnt.value)) # can use 2 instead of maxCnt.value?
 # count steps to generate the give frequency
 cPulse = int(round(hzSys.value/hzFreq/cDiv))
 # duty
 cHigh = int(cPulse*prcDuty/100)
 cLow = int(cPulse-cHigh)
 
-print("Generate: "+str(hzSys.value/cPulse/cDiv)+"Hz duty: "+str(100.0*cHigh/cPulse)+"% divider: "+str(cDiv))
+print("Generate: "+str(hzSys.value/cPulse/cDiv)+"Hz duty: "+str(100.0*cHigh/cPulse)+"% divider: "+str(cDiv)+"High")
+print(f"Time per pulse: {cPulse*cDiv/hzSys.value:.6f} s, high: {cHigh*cDiv/hzSys.value:.6f} s, low: {cLow*cDiv/hzSys.value:.6f} s")
+print(f"Total time: {cPulses*(cLow+cHigh)*cDiv/hzSys.value:.6f} s")
+print(f"High: {cHigh}, Low: {cLow}, Pulse: {cPulse}, Divider: {cDiv}")
 
-dwf.FDwfDigitalOutEnableSet(hdwf, c_int(iChannel), c_int(1))
-dwf.FDwfDigitalOutTypeSet(hdwf, c_int(iChannel), DwfDigitalOutTypePulse) # 
+dwf.FDwfDigitalOutEnableSet(hdwf, c_int(iChannel), c_int(1)) # 
+dwf.FDwfDigitalOutTypeSet(hdwf, c_int(iChannel), DwfDigitalOutTypePulse) # Pulse type - freq = internal clock / divider / counter
 dwf.FDwfDigitalOutDividerSet(hdwf, c_int(iChannel), c_int(cDiv)) # max 2147483649, for counter limitation or custom sample rate
 dwf.FDwfDigitalOutCounterSet(hdwf, c_int(iChannel), c_int(cLow), c_int(cHigh)) # max 32768
 dwf.FDwfDigitalOutCounterInitSet(hdwf, c_int(iChannel), c_int(fPol), c_int(0)) 
 dwf.FDwfDigitalOutRunSet(hdwf, c_double(1.0*cPulses*(cLow+cHigh)*cDiv/hzSys.value)) # seconds to run
 dwf.FDwfDigitalOutWaitSet(hdwf, c_double(sWait)) # wait after trigger
-dwf.FDwfDigitalOutRepeatSet(hdwf, c_int(0)) # infinite
-dwf.FDwfDigitalOutRepeatTriggerSet(hdwf, c_int(1))
+dwf.FDwfDigitalOutRepeatSet(hdwf, c_int(1)) # infinite
+# dwf.FDwfDigitalOutRepeatTriggerSet(hdwf, c_int(1))
 
 # trigger on Trigger IO 
-dwf.FDwfDigitalOutTriggerSourceSet(hdwf, trigsrcExternal1)
+# dwf.FDwfDigitalOutTriggerSourceSet(hdwf, trigsrcExternal1)
 
 # trigger on DIOs
 #dwf.FDwfDigitalOutTriggerSourceSet(hdwf, trigsrcDetectorDigitalIn)
@@ -85,5 +91,22 @@ dwf.FDwfDigitalOutTriggerSourceSet(hdwf, trigsrcExternal1)
 
 print("Armed")
 dwf.FDwfDigitalOutConfigure(hdwf, c_int(1))
+
+
+# check status until done
+sts = c_int()
+dwf.FDwfDigitalOutStatus(hdwf, byref(sts))
+print(f"Status: {sts.value} (1=armed, 2=done, 3=running, 4=config, 5=prefill, 6=not done, 7=wait, 0 = ready)")
+nb_cycles = 0
+while True:
+    dwf.FDwfDigitalOutStatus(hdwf, byref(sts))
+    if sts.value == 2:  # 2 means done
+        break
+    nb_cycles += 1
+    # time.sleep(0.0000001)  # small sleep to prevent busy waiting
+print(f"Status: {sts.value} (1=armed, 2=done, 3=running, 4=config, 5=prefill, 6=not done, 7=wait, 0 = ready)")
+print(f"Cycles: {nb_cycles}")
+
+# time.sleep(1)  # wait for a second to see the output
 
 dwf.FDwfDeviceCloseAll()
