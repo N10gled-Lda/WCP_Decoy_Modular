@@ -1,9 +1,10 @@
 """Laser Hardware Interface using Digilent Device."""
 import logging
-from typing import Optional, List
+import time
+from typing import Optional, List, Dict, Any
 from functools import wraps
 
-from src.alice.laser.laser_controller import BaseLaserDriver
+from src.alice.laser.laser_base import BaseLaserDriver
 from .hardware_laser.digilent_interface import DigilentInterface, TriggerMode
 
 
@@ -73,7 +74,7 @@ class HardwareLaserDriver(BaseLaserDriver):
 
     def initialize(self) -> bool:
         """
-        Initialize and connect to the Digilent device.
+        Initialize and connect to the Digilent device and make it ready to emit.
         
         Returns:
             True if successful, False otherwise
@@ -81,7 +82,16 @@ class HardwareLaserDriver(BaseLaserDriver):
         try:
             success = self.digilent.connect()
             if success:
-                self.logger.info("Laser hardware initialized successfully")
+                # Set default pulse parameters
+                self.digilent.set_pulse_parameters(
+                    self.default_amplitude,
+                    self.default_width,
+                    self.default_frequency
+                )
+                
+                # Enable the trigger system
+                self._is_on = True
+                self.logger.info("Laser hardware initialized and ready")
             else:
                 self.logger.error("Failed to initialize laser hardware")
             return success
@@ -102,150 +112,92 @@ class HardwareLaserDriver(BaseLaserDriver):
             self.logger.error(f"Error during shutdown: {e}")
 
     @ensure_connected
-    def turn_on(self) -> None:
-        """Turn on the laser (enable trigger output)."""
-        try:
-            # The laser itself is controlled by external hardware
-            # Here we just enable the trigger system
-            self._is_on = True
-            self.logger.info("Laser trigger system turned on")
-        except Exception as e:
-            self.logger.error(f"Error turning on laser: {e}")
-            raise
-
-    @ensure_connected
-    def turn_off(self) -> None:
-        """Turn off the laser (disable trigger output)."""
-        try:
-            # Stop any continuous operation
-            if self.digilent.running:
-                self.digilent.stop_continuous()
-            
-            self._is_on = False
-            self._is_armed = False
-            self.logger.info("Laser trigger system turned off")
-        except Exception as e:
-            self.logger.error(f"Error turning off laser: {e}")
-            raise
-
-    @ensure_connected
-    def stop(self) -> None:
-        """Safely stop laser emission."""
-        try:
-            if self.digilent.running:
-                self.digilent.stop_continuous()
-            self._is_armed = False
-            self.logger.info("Laser emission stopped")
-        except Exception as e:
-            self.logger.error(f"Error stopping laser: {e}")
-            raise
-
-    @ensure_connected
-    def arm(self, repetition_rate_hz: float) -> None:
-        """
-        Prepare the laser for a sequence of pulses.
-        
-        Args:
-            repetition_rate_hz: Pulse repetition rate in Hz
-        """
+    def trigger_once(self) -> bool:
+        """Send a single trigger pulse."""
         if not self._is_on:
-            raise RuntimeError("Laser must be turned on before arming")
-        
-        try:
-            self._current_frequency = repetition_rate_hz
-            
-            # Update pulse parameters on Digilent device
-            self.digilent.set_pulse_parameters(
-                self.default_amplitude,
-                self.default_width,
-                repetition_rate_hz
-            )
-            
-            self._is_armed = True
-            self.logger.info(f"Laser armed at {repetition_rate_hz} Hz")
-        except Exception as e:
-            self.logger.error(f"Error arming laser: {e}")
-            raise
-
-    @ensure_connected
-    def fire(self, pattern: List) -> None:
-        """
-        Emit pulses according to a pattern.
-        
-        Args:
-            pattern: List of pulse parameters (not fully implemented yet)
-        """
-        if not self._is_on:
-            raise RuntimeError("Laser must be turned on before firing")
-        
-        try:
-            # For now, fire a burst equal to the pattern length
-            pulse_count = len(pattern) if pattern else 1
-            frequency = self._current_frequency if self._current_frequency > 0 else self.default_frequency
-            
-            success = self.digilent.fire_burst(pulse_count, frequency)
-            if not success:
-                raise RuntimeError("Failed to fire pulse pattern")
-            
-            self.logger.info(f"Fired pattern of {pulse_count} pulses at {frequency} Hz")
-        except Exception as e:
-            self.logger.error(f"Error firing pulse pattern: {e}")
-            raise
-
-    @ensure_connected
-    def fire_single_pulse(self, power: Optional[float] = None, 
-                         linewidth: Optional[float] = None, 
-                         wavelength: Optional[float] = None) -> None:
-        """
-        Emit a single pulse.
-        
-        Args:
-            power: Pulse power (not used for trigger-based system)
-            linewidth: Pulse linewidth (not used for trigger-based system)
-            wavelength: Pulse wavelength (not used for trigger-based system)
-        """
-        if not self._is_on:
-            raise RuntimeError("Laser must be turned on before firing")
+            self.logger.warning("Laser not ready - call initialize() first")
+            return False
         
         try:
             success = self.digilent.fire_single_pulse()
-            if not success:
-                raise RuntimeError("Failed to fire single pulse")
-            
-            self.logger.info("Fired single pulse")
+            if success:
+                self.logger.debug("Single trigger pulse sent")
+            else:
+                self.logger.error("Failed to send trigger pulse")
+            return success
         except Exception as e:
-            self.logger.error(f"Error firing single pulse: {e}")
-            raise
+            self.logger.error(f"Error sending trigger pulse: {e}")
+            return False
 
-    def start_continuous(self, repetition_rate_hz: float) -> None:
+    @ensure_connected
+    def send_frame(self, n_triggers: int, rep_rate_hz: float) -> bool:
+        """
+        Send a frame of multiple trigger pulses.
+        
+        Args:
+            n_triggers: Number of trigger pulses
+            rep_rate_hz: Repetition rate in Hz
+        """
+        if not self._is_on:
+            self.logger.error("Laser must be turned on before sending frame")
+            return False
+        
+        try:
+            # Update pulse parameters
+            self.digilent.set_pulse_parameters(
+                self.default_amplitude,
+                self.default_width,
+                rep_rate_hz
+            )
+            
+            # Send burst of pulses
+            success = self.digilent.fire_burst(n_triggers, rep_rate_hz)
+            if success:
+                self.logger.info(f"Sent frame with {n_triggers} pulses at {rep_rate_hz} Hz")
+            else:
+                self.logger.error("Failed to send frame")
+            return success
+        except Exception as e:
+            self.logger.error(f"Error sending frame: {e}")
+            return False
+
+    @ensure_connected
+    def start_continuous(self, rep_rate_hz: float) -> bool:
         """
         Start continuous laser emission.
         
         Args:
-            repetition_rate_hz: Pulse repetition rate in Hz
+            rep_rate_hz: Pulse repetition rate in Hz
         """
         if not self._is_on:
-            raise RuntimeError("Laser must be turned on before starting continuous mode")
+            self.logger.error("Laser must be turned on before starting continuous mode")
+            return False
         
         try:
-            success = self.digilent.start_continuous(repetition_rate_hz)
-            if not success:
-                raise RuntimeError("Failed to start continuous mode")
-            
-            self._current_frequency = repetition_rate_hz
-            self.logger.info(f"Started continuous mode at {repetition_rate_hz} Hz")
+            success = self.digilent.start_continuous(rep_rate_hz)
+            if success:
+                self._current_frequency = rep_rate_hz
+                self.logger.info(f"Started continuous mode at {rep_rate_hz} Hz")
+            else:
+                self.logger.error("Failed to start continuous mode")
+            return success
         except Exception as e:
             self.logger.error(f"Error starting continuous mode: {e}")
-            raise
+            return False
 
-    def stop_continuous(self) -> None:
+    @ensure_connected
+    def stop_continuous(self) -> bool:
         """Stop continuous laser emission."""
         try:
-            self.digilent.stop_continuous()
-            self.logger.info("Stopped continuous mode")
+            success = self.digilent.stop_continuous()
+            if success:
+                self.logger.info("Stopped continuous mode")
+            else:
+                self.logger.error("Failed to stop continuous mode")
+            return success
         except Exception as e:
             self.logger.error(f"Error stopping continuous mode: {e}")
-            raise
+            return False
 
     def set_pulse_parameters(self, amplitude: float, width: float, frequency: float) -> None:
         """
@@ -265,20 +217,28 @@ class HardwareLaserDriver(BaseLaserDriver):
         
         self.logger.info(f"Set pulse parameters: {amplitude}V, {width*1e6:.1f}μs, {frequency}Hz")
 
-    def get_status(self) -> dict:
+    def get_status(self) -> Dict[str, Any]:
         """
         Get current status of the laser hardware.
         
         Returns:
             Dictionary with status information
         """
-        digilent_status = self.digilent.get_status()
+        try:
+            digilent_status = self.digilent.get_status()
+        except Exception as e:
+            digilent_status = {"error": str(e)}
         
         return {
-            'laser_on': self._is_on,
-            'armed': self._is_armed,
-            'current_frequency': self._current_frequency,
-            'digilent_status': digilent_status
+            "driver_type": "hardware_digilent",
+            "initialized": True,
+            "active": self._is_on,
+            "armed": self._is_armed,
+            "current_frequency": self._current_frequency,
+            "default_amplitude": self.default_amplitude,
+            "default_width": self.default_width,
+            "default_frequency": self.default_frequency,
+            "digilent_status": digilent_status
         }
 
     def is_connected(self) -> bool:

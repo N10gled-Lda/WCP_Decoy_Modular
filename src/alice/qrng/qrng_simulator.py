@@ -46,6 +46,12 @@ class QRNGSimulator:
         self._seed = seed
         self._rng = np.random.default_rng(self._seed)
         self.logger.info(f"QRNG seed set to {self._seed}.")
+    def set_random_seed(self):
+        """Set a new random seed for the QRNG."""
+        self._seed = None
+        self._rng = np.random.default_rng()
+        self.logger.info("QRNG seed reset to random value.")
+        
     def get_seed(self) -> Optional[int]:
         """Get the current seed of the QRNG."""
         return self._seed

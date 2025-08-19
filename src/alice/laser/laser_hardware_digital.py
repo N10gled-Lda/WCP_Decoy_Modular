@@ -115,7 +115,7 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
     #     self.state = LaserState.ERROR
 
     def initialize(self) -> bool:
-        """Initialize the laser hardware."""
+        """Initialize the laser hardware and make it ready to emit."""
         try:
             self.logger.info("Initializing digital laser hardware...")
             
@@ -134,8 +134,8 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             # Start monitoring thread
             self._start_monitoring()
             
-            self.state = LaserState.READY
-            self.logger.info("Digital laser hardware initialized successfully")
+            self.state = LaserState.ON  # Ready to emit after initialization
+            self.logger.info("Digital laser hardware initialized and ready")
             return True
             
         except Exception as e:
@@ -149,7 +149,6 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
         
         try:
             # Stop any ongoing operations
-            self.turn_off()
             self.stop_continuous()
             
             # Stop monitoring
@@ -165,42 +164,6 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             
         except Exception as e:
             self.logger.error(f"Error during shutdown: {e}")
-    
-    def turn_on(self) -> bool:
-        """Turn on the laser (prepare for triggering)."""
-        if self.state == LaserState.ERROR:
-            self.logger.error("Cannot turn on laser in error state")
-            return False
-        
-        try:
-            # For digital triggering, "on" means ready to receive triggers
-            # No actual output until trigger is received
-            self.state = LaserState.ON
-            self.logger.info("Laser turned on (ready for digital triggers)")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to turn on laser: {e}")
-            self.state = LaserState.ERROR
-            return False
-    
-    def turn_off(self) -> bool:
-        """Turn off the laser."""
-        try:
-            # Stop any continuous operation
-            if self.continuous_mode:
-                self.stop_continuous()
-            
-            # Stop any ongoing pulses
-            self.interface.stop()
-            
-            self.state = LaserState.READY
-            self.logger.info("Laser turned off")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to turn off laser: {e}")
-            return False
     
     @ensure_connected
     def trigger_once(self) -> bool:
@@ -424,9 +387,6 @@ if __name__ == "__main__":
             print("❌ Failed to initialize laser driver")
         else:
             print("✅ Laser driver initialized")
-            
-            # Turn on laser
-            laser.turn_on()
             
             # Test single trigger
             print("🔸 Testing single trigger...")

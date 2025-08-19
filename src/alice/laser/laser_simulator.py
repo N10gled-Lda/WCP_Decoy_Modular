@@ -4,8 +4,9 @@ from queue import Queue
 import threading
 import time
 import numpy as np
+from typing import Dict, Any
 
-from src.alice.laser.laser_controller import BaseLaserDriver
+from src.alice.laser.laser_base import BaseLaserDriver
 from src.utils.data_structures import LaserInfo, Pulse
 
 
@@ -19,117 +20,174 @@ class SimulatedLaserDriver(BaseLaserDriver):
         self.default_pulse_width_fwhm_ns = laser_info.pulse_width_fwhm_ns
         self.default_central_wavelength_nm = laser_info.central_wavelength_nm
 
+        # State tracking
+        self._initialized = False
         self.is_on = False
-        self.is_arm = False
-        self.is_fire = False
+        self.is_continuous = False
+        self.continuous_thread = None
+        
+        # Statistics
+        self.pulse_count = 0
+        self.last_trigger_time = 0.0
 
         self.logger.info("Simulated laser driver initialized.")
-        # TODO: Implement noise induced by the laser simulator
 
-    def turn_on(self):
-        """Turn on the simulated laser."""
-        if self.is_on:
-            self.logger.warning("Simulated laser is already on.")
-            return
+    def initialize(self) -> bool:
+        """Initialize the simulated laser (ready to emit)."""
+        try:
+            self._initialized = True
+            self.is_on = True  # Ready to emit after initialization
+            self.logger.info("Simulated laser initialized and ready")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to initialize simulated laser: {e}")
+            return False
+
+    def shutdown(self) -> None:
+        """Shutdown the simulated laser."""
+        try:
+            if self.is_continuous:
+                self.stop_continuous()
+            
+            self.is_on = False
+            self._initialized = False
+            self.logger.info("Simulated laser shutdown completed")
+        except Exception as e:
+            self.logger.error(f"Error during shutdown: {e}")
+
+    def trigger_once(self) -> bool:
+        """Send a single trigger pulse."""
+        if not self._initialized or not self.is_on:
+            self.logger.error("Cannot trigger pulse when laser is not initialized")
+            return False
         
-        self.is_on = True
-        self.logger.info("Simulated laser turned on.")
-
-    def turn_off(self):
-        """Turn off the simulated laser."""
-        if not self.is_on:
-            self.logger.warning("Simulated laser is already off.")
-            return
-        
-        self.is_on = False
-        self.logger.info("Simulated laser turned off.")
-
-    def stop(self):
-        if self.is_arm:
-            self.is_arm = False
-            self.arm_thread.join()
-            self.logger.info("Simulated laser arm stopped.")
-        if self.is_fire:
-            self.is_fire = False
-            self.fire_thread.join()
-            self.logger.info("Simulated laser fire stopped.")
-        
-
-    # ----------------------------------------- arm
-    def arm(self, repetition_rate_hz: float):
-        """Prepare the source for a sequence of pulses."""
-        if not self.is_on:
-            self.logger.error("Cannot arm the laser when it is off.")
-            return
-        self.logger.info(f"Arming simulated laser with repetition rate: {repetition_rate_hz} Hz until stopped.")
-
-        self.rep_period = 1 / repetition_rate_hz
-
-        # Put pulses into the queue based on the repetition rate in a separate thread until stopped
-        self.is_arm = True
-        self.arm_thread = threading.Thread(target=self._arm_laser, args=(self.rep_period,))
-        self.arm_thread.start()
-
-    def _arm_laser(self, rep_period: float):
-        """
-        Arms the laser by putting pulses into the queue at the specified repetition period.
-        """
-        while self.is_arm:
-            self.pulses_queue.put(self._generate_single_pulse())
-            time.sleep(rep_period)
-
-
-    # ----------------------------------------- fire
-    def fire(self, pattern: list[float]) -> None:
-        """
-        Emit (or pretend to emit) one frame's worth of pulses.
-        pattern: list of times between each pulse in seconds.
-        """
-        if not self.is_on:
-            self.logger.error("Cannot fire pulses when the laser is off.")
-            return
-        
-        # Fire the pattern in a separate thread so the program can continue
-        self.is_fire = True
-        self.fire_thread = threading.Thread(target=self._fire_pattern, args=(pattern,))
-        self.fire_thread.start()
-        
-        self.logger.info(f"Started firing {len(pattern)} pulses with pattern: {pattern} in separate thread.")
-
-    def _fire_pattern(self, pattern: list[float]):
-        """
-        Fires the pulse pattern in a separate thread.
-        """
-        for time_delay in pattern:
-            if not self.is_on:
-                self.logger.error("Cannot fire pulses when the laser is off.")
-                return
-            if not self.is_fire:
-                self.logger.error("Cannot fire pulses when the laser is not armed.")
-                return
+        try:
             pulse = self._generate_single_pulse()
             self.pulses_queue.put(pulse)
-            time.sleep(time_delay)
+            self.pulse_count += 1
+            self.last_trigger_time = time.time()
+            
+            self.logger.debug(f"Triggered single pulse: {pulse}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to trigger single pulse: {e}")
+            return False
 
-
-    # ----------------------------------------- fire_single_pulse
-    def fire_single_pulse(self, power: float = None, linewidth: float = None, wavelength: float = None):
+    def send_frame(self, n_triggers: int, rep_rate_hz: float) -> bool:
         """
-        Emit a single pulse.
+        Send a frame of multiple trigger pulses.
+        
+        Args:
+            n_triggers: Number of trigger pulses
+            rep_rate_hz: Repetition rate in Hz
         """
-        if not self.is_on:
-            self.logger.error("Cannot fire a single pulse when the laser is off.")
-            return
+        if not self._initialized or not self.is_on:
+            self.logger.error("Cannot send frame when laser is not initialized")
+            return False
         
-        if power is not None: self.default_current_power_mW = power
-        if linewidth is not None: self.default_pulse_width_fwhm_ns = linewidth
-        if wavelength is not None: self.default_central_wavelength_nm = wavelength
+        try:
+            period = 1.0 / rep_rate_hz
+            
+            for i in range(n_triggers):
+                pulse = self._generate_single_pulse()
+                self.pulses_queue.put(pulse)
+                self.pulse_count += 1
+                
+                # Wait between pulses (except for the last one)
+                if i < n_triggers - 1:
+                    time.sleep(period)
+            
+            self.last_trigger_time = time.time()
+            self.logger.info(f"Sent frame with {n_triggers} pulses at {rep_rate_hz} Hz")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to send frame: {e}")
+            return False
 
-        pulse = self._generate_single_pulse()
-        self.pulses_queue.put(pulse)
+    def start_continuous(self, rep_rate_hz: float) -> bool:
+        """
+        Start continuous trigger pulse generation.
         
-        self.logger.info(f"Fired single pulse: {pulse}.")
+        Args:
+            rep_rate_hz: Repetition rate in Hz
+        """
+        if not self._initialized or not self.is_on:
+            self.logger.error("Cannot start continuous mode when laser is not initialized")
+            return False
+        
+        if self.is_continuous:
+            self.logger.warning("Continuous mode is already active.")
+            return True
+        
+        try:
+            self.is_continuous = True
+            self.continuous_thread = threading.Thread(
+                target=self._continuous_loop, 
+                args=(rep_rate_hz,), 
+                daemon=True
+            )
+            self.continuous_thread.start()
+            
+            self.logger.info(f"Started continuous mode at {rep_rate_hz} Hz")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to start continuous mode: {e}")
+            self.is_continuous = False
+            return False
 
+    def stop_continuous(self) -> bool:
+        """Stop continuous trigger pulse generation."""
+        if not self.is_continuous:
+            self.logger.warning("Continuous mode is not active.")
+            return True
+        
+        try:
+            self.is_continuous = False
+            
+            if self.continuous_thread and self.continuous_thread.is_alive():
+                self.continuous_thread.join(timeout=2.0)
+            
+            self.logger.info("Stopped continuous mode")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to stop continuous mode: {e}")
+            return False
+
+    def get_status(self) -> Dict[str, Any]:
+        """Get comprehensive status information."""
+        return {
+            "driver_type": "simulated",
+            "initialized": self._initialized,
+            "active": self.is_on,
+            "continuous_mode": self.is_continuous,
+            "pulse_count": self.pulse_count,
+            "last_trigger_time": self.last_trigger_time,
+            "laser_info": {
+                "max_power_mW": self.laser_info.max_power_mW,
+                "pulse_width_fwhm_ns": self.laser_info.pulse_width_fwhm_ns,
+                "central_wavelength_nm": self.laser_info.central_wavelength_nm
+            }
+        }
+
+    def _continuous_loop(self, rep_rate_hz: float):
+        """Background continuous pulse generation loop."""
+        period = 1.0 / rep_rate_hz
+        
+        while self.is_continuous and self.is_on:
+            try:
+                pulse = self._generate_single_pulse()
+                self.pulses_queue.put(pulse)
+                self.pulse_count += 1
+                self.last_trigger_time = time.time()
+                
+                time.sleep(period)
+                
+            except Exception as e:
+                self.logger.error(f"Error in continuous loop: {e}")
+                break
 
     def _generate_single_pulse(self) -> Pulse:
         """
@@ -147,13 +205,11 @@ class SimulatedLaserDriver(BaseLaserDriver):
 
         # Simulate polarization
         # For simplicity, we can randomly choose a polarization angle
-        polarization = np.random.choice([0,45,90,135], p=[0.25, 0.25, 0.25, 0.25])  # Randomly choose polarization angle
+        polarization = np.random.choice([0, 45, 90, 135], p=[0.25, 0.25, 0.25, 0.25])
         # TODO - Implement a more sophisticated polarization model from laser_info
         
-        logging.debug(f"Generated pulse with {photon_number} photons and polarization {polarization} degrees.")
         return Pulse(photon_number=photon_number, polarization=polarization)
 
-    
     def _calculate_mean_photon_number(self) -> float:
         """
         Calculate mean photon number based on current power and pulse parameters.

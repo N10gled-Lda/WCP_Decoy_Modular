@@ -15,9 +15,10 @@ from typing import Dict, Any
 # Import all components
 from src.alice.laser.laser_controller import LaserController
 from src.alice.laser.laser_simulator import SimulatedLaserDriver
+from src.utils.data_structures import LaserInfo, Pulse
 from src.alice.polarization.polarization_controller import PolarizationController
-from src.alice.polarization.polarization_simulator import SimulatedPolarizationDriver
-from src.alice.qrng.qrng_simulator import SimulatedQRNGDriver
+from src.alice.polarization.polarization_simulator import PolarizationSimulator
+from src.alice.qrng.qrng_simulator import OperationMode, QRNGSimulator
 from src.quantum_channel.free_space_channel import FreeSpaceChannel
 from src.utils.data_structures import Pulse, PolarizationState
 from configs.hardware_config import SYSTEM_CONFIG
@@ -43,13 +44,21 @@ class AliceSimulator:
             logger.info("Initializing Alice station...")
             
             # Initialize laser
-            laser_driver = SimulatedLaserDriver()
+            from queue import Queue
+            pulses_queue = Queue()
+            laser_info = LaserInfo(
+                max_power_mW=1000.0,
+                pulse_width_fwhm_ns=1000.0,
+                central_wavelength_nm=1550.0
+            )
+            laser_driver = SimulatedLaserDriver(pulses_queue, laser_info)
             self.laser = LaserController(laser_driver)
             self.laser.initialize()
             
             # Initialize polarization controller with QRNG
-            pol_driver = SimulatedPolarizationDriver()
-            qrng_driver = SimulatedQRNGDriver()
+            polarization_queue = Queue()
+            pol_driver = PolarizationSimulator(pulses_queue, polarization_queue, laser_info)
+            qrng_driver = QRNGSimulator()
             self.polarization = PolarizationController(pol_driver, qrng_driver)
             self.polarization.initialize()
             
@@ -81,21 +90,14 @@ class AliceSimulator:
             
             for i in range(n_pulses):
                 # Generate random basis and bit
-                basis = self.polarization.qrng.get_random_choice(['H', 'V', 'D', 'A'])
-                bit_value = self.polarization.qrng.get_random_bit()
-                
-                # Map bit to polarization state
-                if basis in ['H', 'V']:
-                    pol_state = 'H' if bit_value == 0 else 'V'
-                else:  # D, A basis
-                    pol_state = 'D' if bit_value == 0 else 'A'
-                
+                basis = self.polarization.qrng.get_random_bit(mode=OperationMode.DETERMINISTIC)
+                bit_value = self.polarization.qrng.get_random_bit(mode=OperationMode.DETERMINISTIC)
+
+                pol_angle = self.polarization.calculate_polarization_angle(basis, bit_value)
                 # Set polarization
                 pulse = Pulse(
-                    timestamp=time.time(),
-                    pulse_id=i,
-                    intensity=0.5,  # Signal intensity
-                    polarization=getattr(PolarizationState, pol_state)
+                    photons=1,
+                    polarization=pol_angle
                 )
                 
                 # Send pulse to polarization controller
