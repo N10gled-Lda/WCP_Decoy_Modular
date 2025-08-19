@@ -55,63 +55,27 @@ class PolarizationController:
         # self.logger.info(f"Polarization controller initialized with {type(self.polarization_driver).__name__} and {type(self.qrng_driver).__name__}.")
 
     def __init__(self, 
-                 physical: bool = False,
-                 com_port: Optional[str] = None,
-                 pulses_queue: Optional[Queue[Pulse]] = None,
-                 polarized_pulses_queue: Optional[Queue[Pulse]] = None,
-                 laser_info: Optional[LaserInfo] = None,
+                 driver: Union[PolarizationSimulator, PolarizationHardware],
                  qrng_driver: Optional[Union[QRNGSimulator, QRNGHardware]] = None):
         """
-        Initialize polarization controller.
+        Initialize polarization controller with a specific driver.
         
         Args:
-            physical: Whether to use physical hardware or simulator
-            com_port: COM port for hardware (required if physical=True)
-            pulses_queue: Input queue for pulses to be polarized (simulator only)
-            polarized_pulses_queue: Output queue for polarized pulses (simulator only)
-            laser_info: Laser information for simulation (simulator only)
-            qrng_driver: QRNG driver instance
+            driver: The polarization driver (simulator or hardware)
+            qrng_driver: QRNG driver instance (optional, defaults to simulator)
         """
-        self.physical = physical
+        self.driver = driver
+        self.qrng = qrng_driver if qrng_driver else QRNGSimulator()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         
-        # Initialize polarization driver
-        if self.physical:
-            if com_port is None:
-                raise ValueError("COM port must be specified for physical hardware")
-            self.polarization = PolarizationHardware(com_port=com_port)
-        else:
-            # For simulator, we need queues and laser info
-            if pulses_queue is None:
-                pulses_queue = Queue()
-            if polarized_pulses_queue is None:
-                polarized_pulses_queue = Queue()
-            if laser_info is None:
-                # Create default laser info
-                laser_info = LaserInfo(
-                    wavelength=1550.0,  # nm
-                    power=1.0,  # mW
-                    pulse_width=1e-9  # 1ns
-                )
-            
-            self.polarization = PolarizationSimulator(
-                pulses_queue=pulses_queue,
-                polarized_pulses_queue=polarized_pulses_queue,
-                laser_info=laser_info
-            )
-        
-        # Initialize QRNG
-        self.qrng_driver = qrng_driver if qrng_driver else QRNGSimulator()
-        self.logger.info(f"Polarization controller initialized in {'physical' if physical else 'simulation'} mode")
-
-
         # State tracking
         self.current_basis = Basis.Z
         self.current_bit = Bit.ZERO
         self.current_state = PolarizationState.H
         self.current_angle = self.current_state.angle_degrees
+        self._initialized = False
         
-        self.logger.info(f"Polarization controller initialized in {'physical' if physical else 'simulation'} mode")
+        self.logger.info(f"Polarization controller initialized with {type(driver).__name__}")
 
     def map_basis_bit_to_polarization(self, basis: Basis, bit: Bit) -> PolarizationState:
         """
@@ -171,11 +135,11 @@ class PolarizationController:
             Tuple of (basis, bit)
         """
         # Generate random basis (Z or X)
-        basis_bit = self.qrng_driver.get_random_bit(mode=OperationMode.STREAMING)
+        basis_bit = self.qrng.get_random_bit(mode=OperationMode.STREAMING)
         basis = Basis.Z if basis_bit == 0 else Basis.X
         
         # Generate random bit (0 or 1)
-        bit_value = self.qrng_driver.get_random_bit(mode=OperationMode.STREAMING)
+        bit_value = self.qrng.get_random_bit(mode=OperationMode.STREAMING)
         bit = Bit.ZERO if bit_value == 0 else Bit.ONE
         
         self.logger.debug(f"QRNG generated: basis={basis}, bit={bit}")
@@ -258,10 +222,10 @@ class PolarizationController:
         """Set polarization to a specific BB84 state."""
         angle = state.angle_degrees
         
-        if hasattr(self.polarization, 'set_polarization_angle'):
-            self.polarization.set_polarization_angle(angle)
-        elif hasattr(self.polarization, 'set_polarization'):
-            self.polarization.set_polarization(angle)
+        if hasattr(self.driver, 'set_polarization_angle'):
+            self.driver.set_polarization_angle(angle)
+        elif hasattr(self.driver, 'set_polarization'):
+            self.driver.set_polarization(angle)
         else:
             self.logger.warning("Polarization driver has no recognized set method")
         
@@ -282,17 +246,17 @@ class PolarizationController:
         Apply current polarization to all pulses in the queue.
         This method processes pulses from the input queue and puts polarized pulses in the output queue.
         """
-        if hasattr(self.polarization, 'apply_polarization_queue'):
-            self.polarization.apply_polarization_queue()
+        if hasattr(self.driver, 'apply_polarization_queue'):
+            self.driver.apply_polarization_queue()
             self.logger.info("Applied polarization to all queued pulses")
         else:
             self.logger.warning("Polarization driver doesn't support queue processing")
 
     def get_queue_info(self) -> dict:
         """Get information about the pulse queues (simulator only)."""
-        if not self.physical and hasattr(self.polarization, 'pulses_queue'):
-            input_size = self.polarization.pulses_queue.qsize()
-            output_size = self.polarization.polarized_pulses_queue.qsize()
+        if hasattr(self.driver, 'input_queue') and hasattr(self.driver, 'output_queue'):
+            input_size = self.driver.input_queue.qsize()
+            output_size = self.driver.output_queue.qsize()
             return {
                 'input_queue_size': input_size,
                 'output_queue_size': output_size,
@@ -300,18 +264,125 @@ class PolarizationController:
                 'current_angle': self.current_angle
             }
         else:
-            return {'message': 'Queue info only available for simulator mode'}
+            return {'message': 'Queue info only available for simulator driver with queues'}
 
-    def initialize(self) -> None:
-        """Initialize the polarization controller."""
-        if hasattr(self.polarization, 'initialize'):
-            self.polarization.initialize()
-        self.logger.info("Polarization controller initialized")
+    def initialize(self) -> bool:
+        """Initialize the polarization controller and underlying driver."""
+        try:
+            if hasattr(self.driver, 'initialize'):
+                success = self.driver.initialize()
+                if not success:
+                    self.logger.error("Failed to initialize polarization driver")
+                    return False
+            
+            self._initialized = True
+            self.logger.info("Polarization controller initialized successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error initializing polarization controller: {e}")
+            return False
 
     def shutdown(self) -> None:
-        """Shutdown the polarization controller."""
-        if hasattr(self.polarization, 'shutdown'):
-            self.polarization.shutdown()
-        self.logger.info("Polarization controller shutdown")
+        """Shutdown the polarization controller and underlying driver."""
+        try:
+            if hasattr(self.driver, 'shutdown'):
+                self.driver.shutdown()
+            
+            self._initialized = False
+            self.logger.info("Polarization controller shutdown completed")
+            
+        except Exception as e:
+            self.logger.error(f"Error during polarization controller shutdown: {e}")
+
+    def is_initialized(self) -> bool:
+        """Check if the polarization controller is initialized."""
+        return self._initialized
+
+    # Convenience methods for setting driver-specific parameters
+    def set_com_port(self, com_port: str) -> None:
+        """Set COM port for hardware driver (if applicable)."""
+        if hasattr(self.driver, 'set_com_port'):
+            self.driver.set_com_port(com_port)
+            self.logger.info(f"COM port set to {com_port}")
+        else:
+            self.logger.warning("Driver doesn't support COM port setting")
+
+    def get_input_queue(self) -> Optional[Queue]:
+        """Get input queue from simulator driver (if applicable)."""
+        if hasattr(self.driver, 'input_queue'):
+            return self.driver.input_queue
+        return None
+
+    def get_output_queue(self) -> Optional[Queue]:
+        """Get output queue from simulator driver (if applicable)."""
+        if hasattr(self.driver, 'output_queue'):
+            return self.driver.output_queue
+        return None
+
+    def __enter__(self):
+        """Context manager entry."""
+        if not self._initialized:
+            self.initialize()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.shutdown()
+
+
+# Factory functions for easy controller creation
+def create_polarization_controller_with_simulator(input_queue: Optional[Queue] = None,
+                                                 output_queue: Optional[Queue] = None,
+                                                 laser_info: Optional[LaserInfo] = None,
+                                                 qrng_driver: Optional[Union[QRNGSimulator, QRNGHardware]] = None) -> PolarizationController:
+    """
+    Create a polarization controller with simulator driver.
+    
+    Args:
+        input_queue: Input queue for pulses (optional)
+        output_queue: Output queue for polarized pulses (optional)
+        laser_info: Laser information (optional)
+        qrng_driver: QRNG driver (optional)
+    
+    Returns:
+        PolarizationController with simulator driver
+    """
+    # Create default queues if not provided
+    if input_queue is None:
+        input_queue = Queue()
+    if output_queue is None:
+        output_queue = Queue()
+    if laser_info is None:
+        laser_info = LaserInfo(wavelength=1550.0, power=1.0, pulse_width=1e-9)
+    
+    # Create simulator driver
+    simulator = PolarizationSimulator(
+        pulses_queue=input_queue,
+        polarized_pulses_queue=output_queue,
+        laser_info=laser_info
+    )
+    
+    # Create controller
+    return PolarizationController(driver=simulator, qrng_driver=qrng_driver)
+
+
+def create_polarization_controller_with_hardware(com_port: str,
+                                                qrng_driver: Optional[Union[QRNGSimulator, QRNGHardware]] = None) -> PolarizationController:
+    """
+    Create a polarization controller with hardware driver.
+    
+    Args:
+        com_port: COM port for STM32 interface
+        qrng_driver: QRNG driver (optional)
+    
+    Returns:
+        PolarizationController with hardware driver
+    """
+    # Create hardware driver
+    hardware = PolarizationHardware(com_port=com_port)
+    
+    # Create controller
+    return PolarizationController(driver=hardware, qrng_driver=qrng_driver)
 
 

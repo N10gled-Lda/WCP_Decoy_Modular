@@ -31,11 +31,6 @@ class PolarizationHardware(BasePolarizationDriver):
         
         self.logger.info(f"Polarization hardware interface initialized for port {com_port}")
 
-    # def _handle_connection(self):
-    #     """Handle the STM32 connection event."""
-    #     self.logger.info(f"STM32 connected on port {self.com_port}")
-    #     self.connected = True
-
     def initialize(self) -> None:
         """Initialize the STM32 hardware connection."""
         try:
@@ -43,7 +38,6 @@ class PolarizationHardware(BasePolarizationDriver):
                 self.logger.warning("Already connected to STM32. Reinitializing...")
                 self.shutdown()
             self.stm = STM32Interface(port=self.com_port)
-            # self.stm.on_connected = self._handle_connection
             # self.stm.on_connected = self._handle_stm32_connected
             # self.stm.on_available = self._handle_stm32_available
             self.stm.on_polarization_status = self._handle_polarization_status
@@ -327,7 +321,7 @@ class PolarizationHardware(BasePolarizationDriver):
     def _handle_stm32_connected(self):
         """Callback for STM32 connection established."""
         self.is_connected = True
-        self.logger.info("✓ STM32 interface connected")
+        self.logger.info("✓ STM32 interface connected to port %s", self.com_port)
     
     def _handle_stm32_available(self):
         """Callback for STM32 becoming available."""
