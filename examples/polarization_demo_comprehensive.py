@@ -169,7 +169,48 @@ class PolarizationControllerDemo:
                     except Exception as e:
                         self.logger.error(f"    ❌ QRNG test {i+1} failed: {e}")
                 
-                # Test 4: State verification
+                # Test 4: New STM32 commands through controller
+                self.logger.info("\n🔧 Testing new STM32 commands through controller:")
+                try:
+                    hardware_driver = controller.driver
+                    if hasattr(hardware_driver, 'set_polarization_device'):
+                        self.logger.info("  Testing polarization device control...")
+                        success = hardware_driver.set_polarization_device("Linear Polarizer")
+                        self.logger.info(f"    Set to Linear Polarizer: {'✅ Success' if success else '❌ Failed'}")
+                        time.sleep(0.5)
+                        
+                        success = hardware_driver.set_polarization_device("Half Wave Plate") 
+                        self.logger.info(f"    Set to Half Wave Plate: {'✅ Success' if success else '❌ Failed'}")
+                        time.sleep(0.5)
+                    
+                    if hasattr(hardware_driver, 'set_angle_direct'):
+                        self.logger.info("  Testing direct angle control...")
+                        success = hardware_driver.set_angle_direct(30.0)
+                        self.logger.info(f"    Set angle to 30°: {'✅ Success' if success else '❌ Failed'}")
+                        time.sleep(0.5)
+                        
+                        success = hardware_driver.set_angle_direct(60.0, use_offset=True)
+                        self.logger.info(f"    Set angle with offset to 60°: {'✅ Success' if success else '❌ Failed'}")
+                        time.sleep(0.5)
+                    
+                    if hasattr(hardware_driver, 'set_stepper_frequency'):
+                        self.logger.info("  Testing stepper frequency control...")
+                        success = hardware_driver.set_stepper_frequency(800.0)
+                        self.logger.info(f"    Set stepper frequency to 800 Hz: {'✅ Success' if success else '❌ Failed'}")
+                        time.sleep(0.5)
+                    
+                    if hasattr(hardware_driver, 'set_operation_period'):
+                        self.logger.info("  Testing operation period control...")
+                        success = hardware_driver.set_operation_period(1.5)
+                        self.logger.info(f"    Set operation period to 1.5 s: {'✅ Success' if success else '❌ Failed'}")
+                        time.sleep(0.5)
+                        
+                    self.logger.info("  ✅ New STM32 command testing completed")
+                    
+                except Exception as e:
+                    self.logger.error(f"  ❌ New STM32 command testing failed: {e}")
+                
+                # Test 5: State verification
                 self.logger.info("\n📊 Testing state verification:")
                 current_state = controller.get_current_state()
                 self.logger.info(f"  Current state: {current_state}")
@@ -196,12 +237,34 @@ class PolarizationControllerDemo:
                 self.logger.info("  ✅ STM32 connected")
             
             def handle_available():
-                self.logger.info("  ✅ STM32 available - sending test polarization...")
-                success = stm.send_polarization_numbers([0, 1, 2, 3])
-                if success:
-                    self.logger.info("  ✅ Polarization numbers sent successfully")
-                else:
-                    self.logger.error("  ❌ Failed to send polarization numbers")
+                self.logger.info("  ✅ STM32 available - testing all new commands...")
+                
+                # Test polarization numbers
+                success = stm.send_cmd_polarization_numbers([0, 1, 2, 3])
+                self.logger.info(f"    Polarization numbers [0,1,2,3]: {'✅ Success' if success else '❌ Failed'}")
+                
+                # Test device setting
+                success = stm.send_cmd_polarization_device("Linear Polarizer")
+                self.logger.info(f"    Set device to Linear Polarizer: {'✅ Success' if success else '❌ Failed'}")
+                
+                success = stm.send_cmd_polarization_device("Half Wave Plate")
+                self.logger.info(f"    Set device to Half Wave Plate: {'✅ Success' if success else '❌ Failed'}")
+                
+                # Test angle setting
+                success = stm.send_cmd_set_angle(45.0, False)
+                self.logger.info(f"    Set angle to 45°: {'✅ Success' if success else '❌ Failed'}")
+                
+                success = stm.send_cmd_set_angle(90.0, True)
+                self.logger.info(f"    Set angle with offset to 90°: {'✅ Success' if success else '❌ Failed'}")
+                
+                # Test frequency settings
+                success = stm.send_cmd_set_frequency(1200.0, True)
+                self.logger.info(f"    Set stepper frequency to 1200 Hz: {'✅ Success' if success else '❌ Failed'}")
+                
+                success = stm.send_cmd_set_frequency(2.5, False)
+                self.logger.info(f"    Set operation period to 2.5 s: {'✅ Success' if success else '❌ Failed'}")
+                
+                self.logger.info("  ✅ All STM32 commands tested successfully")
             
             def handle_polarization_status(status):
                 status_names = {

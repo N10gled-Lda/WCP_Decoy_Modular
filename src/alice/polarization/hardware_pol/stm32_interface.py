@@ -79,7 +79,6 @@ class STM32Interface:
             try:
                 msg = self.send_queue.get(timeout=0.1)
                 self.serial_port.write(msg)
-                print(f"Sent message: {msg}")
             except Empty:
                 continue
 
@@ -131,7 +130,6 @@ class STM32Interface:
                 continue
             # CRC check
             crc_data = bytearray([start[0], cmd[0], sub_cmd[0], length[0]]) + payload
-            print(f"crc_data: {list(crc_data)}")
             if crc[0] == self.crc_calculate(crc_data):
                 print(f"Received message: cmd={true_cmd}, sub_cmd={sub_cmd[0]}, length={length[0]}, payload={list(payload)}, is_response={is_response}")
                 self.receive_queue.put({
@@ -143,7 +141,6 @@ class STM32Interface:
                 })
             else:
                 # CRC error, queue error response
-                print(f"CRC error: cmd={true_cmd}, sub_cmd={sub_cmd[0]}, length={length[0]}, payload={list(payload)}, is_response={is_response}, crc={crc[0]}, expected={self.crc_calculate(crc_data)}")
                 response = [START_BYTE, RESPONSE | true_cmd, sub_cmd[0], 1, CommandStatus.COMMAND_CRC_ERROR]
                 response.append(self.crc_calculate(bytearray(response)))
                 self.serial_port.write(bytearray(response))
@@ -254,7 +251,6 @@ class STM32Interface:
             msg = [START_BYTE, Command.COMMAND_CONNECTION.value, SubCommandConnection.SUB_COMMAND_CONNECTION_CONNECT.value, 0]
             msg.append(self.crc_calculate(bytearray(msg)))
             self.send_queue.put(bytearray(msg))
-            print(f"Connection command queued: {msg}")
 
     def send_cmd_polarization_numbers(self, numbers):
         if not self.connected:

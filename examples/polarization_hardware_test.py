@@ -84,6 +84,56 @@ def test_polarization_hardware(com_port: str = "COM3"):
             else:
                 logger.info(f"  {key}: {value}")
         
+        # Test new STM32 commands directly
+        logger.info("\n5. Testing new STM32 commands directly:")
+        try:
+            hardware_driver = controller.driver
+            if hasattr(hardware_driver, 'stm') and hardware_driver.stm:
+                stm = hardware_driver.stm
+                
+                # Test polarization device setting
+                logger.info("  Testing polarization device setting...")
+                success = stm.send_cmd_polarization_device("Linear Polarizer")
+                logger.info(f"    Set device to Linear Polarizer: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+                
+                success = stm.send_cmd_polarization_device("Half Wave Plate")
+                logger.info(f"    Set device to Half Wave Plate: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+                
+                # Test direct angle setting
+                logger.info("  Testing direct angle setting...")
+                success = stm.send_cmd_set_angle(45.0)
+                logger.info(f"    Set angle to 45°: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+                
+                success = stm.send_cmd_set_angle_offset(90.0)
+                logger.info(f"    Set angle with offset to 90°: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+                
+                # Test frequency settings
+                logger.info("  Testing frequency settings...")
+                success = stm.send_cmd_set_stepper_frequency(1000.0)
+                logger.info(f"    Set stepper frequency to 1000 Hz: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+                
+                success = stm.send_cmd_set_operation_period(2.0)
+                logger.info(f"    Set operation period to 2.0 s: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+                
+                # Test polarization numbers
+                logger.info("  Testing polarization numbers...")
+                success = stm.send_cmd_polarization_numbers([0, 1, 2, 3])
+                logger.info(f"    Send polarization numbers [0,1,2,3]: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+                
+                logger.info("  ✅ All new STM32 commands tested")
+            else:
+                logger.warning("  ⚠️ STM32 interface not available for direct command testing")
+                
+        except Exception as e:
+            logger.error(f"  ❌ STM32 command testing failed: {e}")
+        
         # Shutdown
         controller.shutdown()
         logger.info("\n✅ Polarization hardware test completed successfully!")

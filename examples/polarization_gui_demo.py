@@ -29,8 +29,12 @@ logger = logging.getLogger(__name__)
 class PolarizationControllerGUI(ctk.CTk):
     def __init__(self):
         super().__init__()
+        # Scrollable window
+        self.scrollable_frame = ctk.CTkScrollableFrame(self, width=550, height=800)
+        self.scrollable_frame.pack(fill="both", expand=True)
+        
         self.title("Polarization Controller Hardware Interface")
-        self.geometry("500x800")
+        self.geometry("550x800")
 
         # Controller
         self.pol_controller: Optional[PolarizationController] = None
@@ -52,12 +56,12 @@ class PolarizationControllerGUI(ctk.CTk):
         """Setup the GUI layout"""
         
         # Title
-        title_label = ctk.CTkLabel(self, text="STM32 Polarization Controller Interface", 
+        title_label = ctk.CTkLabel(self.scrollable_frame, text="STM32 Polarization Controller Interface", 
                                   font=ctk.CTkFont(size=20, weight="bold"))
         title_label.pack(pady=(20, 10))
         
         # Connection Frame
-        conn_frame = ctk.CTkFrame(self)
+        conn_frame = ctk.CTkFrame(self.scrollable_frame)
         conn_frame.pack(pady=10, padx=20, fill="x")
         
         conn_label = ctk.CTkLabel(conn_frame, text="Hardware Connection", 
@@ -93,12 +97,12 @@ class PolarizationControllerGUI(ctk.CTk):
 
 
         # Polarization Control Frame
-        control_frame = ctk.CTkFrame(self)
-        control_frame.pack(pady=10, padx=20, fill="x")
+        control_frame = ctk.CTkFrame(self.scrollable_frame)
+        control_frame.pack(pady=(0,10), padx=20, fill="x")
         
         control_label = ctk.CTkLabel(control_frame, text="Polarization Control", 
                                    font=ctk.CTkFont(size=16, weight="bold"))
-        control_label.pack(pady=(10, 5))
+        control_label.pack()
         
         # Manual control
         manual_frame = ctk.CTkFrame(control_frame)
@@ -203,16 +207,96 @@ class PolarizationControllerGUI(ctk.CTk):
         stm32_label.pack(pady=(10, 0))
 
         self.polarization_entry = ctk.CTkEntry(stm32_frame, placeholder_text="0,1,2,3")
-        self.polarization_entry.pack(pady=5, padx=10, fill="x")
+        self.polarization_entry.pack(pady=10, padx=(10,5), fill="x", side="left", expand=True)
         
         self.send_stm32_button = ctk.CTkButton(stm32_frame, text="Send to STM32", 
                                               command=self.send_polarization_numbers,
                                               state="disabled")
-        self.send_stm32_button.pack(pady=10)
+        self.send_stm32_button.pack(pady=10, padx=(5,10), side="right")
+
+        # Advanced STM32 Controls Frame (inspired by main.py)
+        advanced_frame = ctk.CTkFrame(self.scrollable_frame)
+        advanced_frame.pack(pady=(0,10), padx=20, fill="x")
+        
+        advanced_label = ctk.CTkLabel(advanced_frame, text="Advanced STM32 Controls", 
+                                    font=ctk.CTkFont(size=14, weight="bold"))
+        advanced_label.pack()
+        
+        # Device selection
+        device_frame = ctk.CTkFrame(advanced_frame)
+        device_frame.pack(pady=5, padx=10, fill="x")
+        
+        device_label = ctk.CTkLabel(device_frame, text="Device:")
+        device_label.pack(side="left", padx=(10, 5))
+        
+        self.device_var = ctk.StringVar(value="1")
+        device_radio1 = ctk.CTkRadioButton(device_frame, text="Linear Polarizer (1)", 
+                                         variable=self.device_var, value="1")
+        device_radio1.pack(side="left", padx=5)
+        device_radio2 = ctk.CTkRadioButton(device_frame, text="Half Wave Plate (2)", 
+                                         variable=self.device_var, value="2")
+        device_radio2.pack(side="left", padx=5)
+        
+        self.set_device_button = ctk.CTkButton(device_frame, text="Set Device", 
+                                             command=self.set_polarization_device, 
+                                             state="disabled", width=100)
+        self.set_device_button.pack(side="right", padx=10)
+        
+        # Angle control
+        angle_frame = ctk.CTkFrame(advanced_frame)
+        angle_frame.pack(pady=5, padx=10, fill="x")
+        
+        angle_label = ctk.CTkLabel(angle_frame, text="Angle (0-360°):")
+        angle_label.pack(side="left", padx=(10, 5))
+        
+        self.angle_entry = ctk.CTkEntry(angle_frame, width=80, placeholder_text="45")
+        self.angle_entry.pack(side="left", padx=5)
+        
+        self.offset_switch = ctk.CTkSwitch(angle_frame, text="Set as Offset")
+        self.offset_switch.pack(side="left", padx=10)
+        
+        self.set_angle_button = ctk.CTkButton(angle_frame, text="Set Angle", 
+                                            command=self.set_angle_direct, 
+                                            state="disabled", width=100)
+        self.set_angle_button.pack(side="right", padx=10)
+        
+        # Frequency controls
+        freq_frame = ctk.CTkFrame(advanced_frame)
+        freq_frame.pack(pady=5, padx=10, fill="x")
+        
+        # Stepper frequency
+        stepper_frame = ctk.CTkFrame(freq_frame, fg_color="transparent")
+        stepper_frame.pack(pady=2, fill="x")
+        
+        stepper_label = ctk.CTkLabel(stepper_frame, text="Stepper Frequency (1-1000 Hz):")
+        stepper_label.pack(side="left", padx=(10, 5))
+        
+        self.stepper_entry = ctk.CTkEntry(stepper_frame, width=80, placeholder_text="100")
+        self.stepper_entry.pack(side="left", padx=5)
+        
+        self.set_stepper_button = ctk.CTkButton(stepper_frame, text="Set Stepper Freq", 
+                                              command=self.set_stepper_frequency, 
+                                              state="disabled", width=120)
+        self.set_stepper_button.pack(side="right", padx=10)
+        
+        # Operation period
+        period_frame = ctk.CTkFrame(freq_frame, fg_color="transparent")
+        period_frame.pack(pady=2, fill="x")
+        
+        period_label = ctk.CTkLabel(period_frame, text="Operation Period (1-60000 ms):")
+        period_label.pack(side="left", padx=(10, 5))
+        
+        self.period_entry = ctk.CTkEntry(period_frame, width=80, placeholder_text="5000")
+        self.period_entry.pack(side="left", padx=5)
+        
+        self.set_period_button = ctk.CTkButton(period_frame, text="Set Period", 
+                                             command=self.set_operation_period, 
+                                             state="disabled", width=120)
+        self.set_period_button.pack(side="right", padx=10)
 
 
         # Current State Frame
-        state_frame = ctk.CTkFrame(self)
+        state_frame = ctk.CTkFrame(self.scrollable_frame)
         state_frame.pack(pady=10, padx=20, fill="x")
         
         state_label = ctk.CTkLabel(state_frame, text="Current State", 
@@ -224,7 +308,7 @@ class PolarizationControllerGUI(ctk.CTk):
         self.state_text.pack(pady=10, padx=10)
         
         # Log Frame
-        log_frame = ctk.CTkFrame(self)
+        log_frame = ctk.CTkFrame(self.scrollable_frame)
         log_frame.pack(pady=10, padx=20, fill="both", expand=True)
         
         log_label = ctk.CTkLabel(log_frame, text="Activity Log", 
@@ -322,6 +406,11 @@ class PolarizationControllerGUI(ctk.CTk):
         self.v_button.configure(state=state)
         self.d_button.configure(state=state)
         self.a_button.configure(state=state)
+        self.send_stm32_button.configure(state=state)
+        self.set_device_button.configure(state=state)
+        self.set_angle_button.configure(state=state)
+        self.set_stepper_button.configure(state=state)
+        self.set_period_button.configure(state=state)
 
     def set_polarization_manual(self):
         """Set polarization manually"""
@@ -418,7 +507,7 @@ class PolarizationControllerGUI(ctk.CTk):
             # Access the STM32 interface through the hardware driver
             hardware_driver = self.pol_controller.driver
             if hasattr(hardware_driver, 'stm'):
-                success = hardware_driver.stm.send_polarization_numbers(numbers)
+                success = hardware_driver.stm.send_cmd_polarization_numbers(numbers)
                 if success:
                     self.log_message(f"✓ Sent polarization numbers to STM32: {numbers}", "green")
                     self.polarization_entry.delete(0, 'end')  # Clear entry
@@ -428,6 +517,105 @@ class PolarizationControllerGUI(ctk.CTk):
                 self.log_message("✗ STM32 interface not available", "red")
         except Exception as e:
             self.log_message(f"✗ Error sending to STM32: {str(e)}", "red")
+
+    def set_polarization_device(self):
+        """Set the polarization device (Linear Polarizer or Half Wave Plate)"""
+        if not self.pol_controller:
+            self.log_message("✗ Not connected to STM32", "red")
+            return
+        
+        device = self.device_var.get()
+        try:
+            hardware_driver = self.pol_controller.driver
+            if hasattr(hardware_driver, 'stm'):
+                success = hardware_driver.stm.send_cmd_polarization_device(device)
+                if success:
+                    self.log_message(f"✓ Set polarization device to: {device}", "green")
+                else:
+                    self.log_message("✗ Failed to set polarization device", "red")
+            else:
+                self.log_message("✗ STM32 interface not available", "red")
+        except Exception as e:
+            self.log_message(f"✗ Error setting device: {str(e)}", "red")
+
+    def set_angle_direct(self):
+        """Set angle directly with optional offset"""
+        if not self.pol_controller:
+            self.log_message("✗ Not connected to STM32", "red")
+            return
+        
+        try:
+            angle = float(self.angle_entry.get())
+            use_offset = self.offset_var.get()
+            
+            hardware_driver = self.pol_controller.driver
+            if hasattr(hardware_driver, 'stm'):
+                if use_offset:
+                    success = hardware_driver.stm.send_cmd_set_angle(angle, offset=True)
+                    action = "set angle with offset"
+                else:
+                    success = hardware_driver.stm.send_cmd_set_angle(angle, offset=False)
+                    action = "set angle"
+                
+                if success:
+                    self.log_message(f"✓ Successfully {action}: {angle}°", "green")
+                    self.angle_entry.delete(0, 'end')
+                else:
+                    self.log_message(f"✗ Failed to {action}", "red")
+            else:
+                self.log_message("✗ STM32 interface not available", "red")
+        except ValueError:
+            self.log_message("✗ Invalid angle value", "red")
+        except Exception as e:
+            self.log_message(f"✗ Error setting angle: {str(e)}", "red")
+
+    def set_stepper_frequency(self):
+        """Set stepper motor frequency"""
+        if not self.pol_controller:
+            self.log_message("✗ Not connected to STM32", "red")
+            return
+        
+        try:
+            frequency = float(self.stepper_entry.get())
+            
+            hardware_driver = self.pol_controller.driver
+            if hasattr(hardware_driver, 'stm'):
+                success = hardware_driver.stm.send_cmd_set_frequency(frequency, is_stepper=True)
+                if success:
+                    self.log_message(f"✓ Set stepper frequency: {frequency} Hz", "green")
+                    self.stepper_entry.delete(0, 'end')
+                else:
+                    self.log_message("✗ Failed to set stepper frequency", "red")
+            else:
+                self.log_message("✗ STM32 interface not available", "red")
+        except ValueError:
+            self.log_message("✗ Invalid frequency value", "red")
+        except Exception as e:
+            self.log_message(f"✗ Error setting stepper frequency: {str(e)}", "red")
+
+    def set_operation_period(self):
+        """Set operation period"""
+        if not self.pol_controller:
+            self.log_message("✗ Not connected to STM32", "red")
+            return
+        
+        try:
+            period = float(self.period_entry.get())
+            
+            hardware_driver = self.pol_controller.driver
+            if hasattr(hardware_driver, 'stm'):
+                success = hardware_driver.stm.send_cmd_set_frequency(period, is_stepper=False)
+                if success:
+                    self.log_message(f"✓ Set operation period: {period} s", "green")
+                    self.period_entry.delete(0, 'end')
+                else:
+                    self.log_message("✗ Failed to set operation period", "red")
+            else:
+                self.log_message("✗ STM32 interface not available", "red")
+        except ValueError:
+            self.log_message("✗ Invalid period value", "red")
+        except Exception as e:
+            self.log_message(f"✗ Error setting operation period: {str(e)}", "red")
             
             
     def get_angle_for_state(self, basis: Basis, bit: Bit) -> int:
