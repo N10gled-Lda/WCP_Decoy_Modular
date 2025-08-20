@@ -54,12 +54,7 @@ class PolarizationControllerGUI(ctk.CTk):
 
     def setup_gui(self):
         """Setup the GUI layout"""
-        
-        # Title
-        title_label = ctk.CTkLabel(self.scrollable_frame, text="STM32 Polarization Controller Interface", 
-                                  font=ctk.CTkFont(size=20, weight="bold"))
-        title_label.pack(pady=(20, 10))
-        
+                
         # Connection Frame
         conn_frame = ctk.CTkFrame(self.scrollable_frame)
         conn_frame.pack(pady=10, padx=20, fill="x")
@@ -360,7 +355,7 @@ class PolarizationControllerGUI(ctk.CTk):
             )
             
             # Initialize the controller
-            self.pol_controller.__enter__()
+            self.pol_controller.initialize()
             
             self.is_connected = True
             self.status_label.configure(text=f"● Connected to {com_port}", text_color="green")
@@ -381,7 +376,8 @@ class PolarizationControllerGUI(ctk.CTk):
         """Disconnect from hardware"""
         try:
             if self.pol_controller:
-                self.pol_controller.__exit__(None, None, None)
+                # self.pol_controller.__exit__(None, None, None)
+                self.pol_controller.shutdown()
                 self.pol_controller = None
                 
             self.is_connected = False
@@ -487,20 +483,20 @@ class PolarizationControllerGUI(ctk.CTk):
     def send_polarization_numbers(self):
         """Send polarization numbers directly to STM32 (inspired by original main.py)."""
         if not self.pol_controller:
-            self.log_message("✗ Not connected to STM32", "red")
+            self.log_message("✗ Not connected to STM32")
             return
         
         numbers_str = self.polarization_entry.get()
         try:
             numbers = [int(x.strip()) for x in numbers_str.split(",") if x.strip() != ""]
             if not numbers:
-                self.log_message("✗ Enter at least one number", "red")
+                self.log_message("✗ Enter at least one number")
                 return
             if not all(0 <= n <= 3 for n in numbers):
-                self.log_message("✗ Numbers must be 0, 1, 2, or 3", "red")
+                self.log_message("✗ Numbers must be 0, 1, 2, or 3")
                 return
         except ValueError:
-            self.log_message("✗ Invalid input. Use comma-separated numbers", "red")
+            self.log_message("✗ Invalid input. Use comma-separated numbers")
             return
 
         try:
@@ -509,70 +505,74 @@ class PolarizationControllerGUI(ctk.CTk):
             if hasattr(hardware_driver, 'stm'):
                 success = hardware_driver.stm.send_cmd_polarization_numbers(numbers)
                 if success:
-                    self.log_message(f"✓ Sent polarization numbers to STM32: {numbers}", "green")
-                    self.polarization_entry.delete(0, 'end')  # Clear entry
+                    self.log_message(f"✓ Sent polarization numbers to STM32: {numbers}")
+                    # self.polarization_entry.delete(0, 'end')  # Clear entry
                 else:
-                    self.log_message("✗ Failed to send numbers to STM32", "red")
+                    self.log_message("✗ Failed to send numbers to STM32")
             else:
-                self.log_message("✗ STM32 interface not available", "red")
+                self.log_message("✗ STM32 interface not available")
         except Exception as e:
-            self.log_message(f"✗ Error sending to STM32: {str(e)}", "red")
+            self.log_message(f"✗ Error sending to STM32: {str(e)}")
 
     def set_polarization_device(self):
         """Set the polarization device (Linear Polarizer or Half Wave Plate)"""
         if not self.pol_controller:
-            self.log_message("✗ Not connected to STM32", "red")
+            self.log_message("✗ Not connected to STM32")
             return
         
-        device = self.device_var.get()
+        device = int(self.device_var.get())
+        print(f"Setting polarization device to: {device}")
         try:
             hardware_driver = self.pol_controller.driver
             if hasattr(hardware_driver, 'stm'):
                 success = hardware_driver.stm.send_cmd_polarization_device(device)
                 if success:
-                    self.log_message(f"✓ Set polarization device to: {device}", "green")
+                    self.log_message(f"✓ Set polarization device to: {device}")
                 else:
-                    self.log_message("✗ Failed to set polarization device", "red")
+                    self.log_message("✗ Failed to set polarization device")
             else:
-                self.log_message("✗ STM32 interface not available", "red")
+                self.log_message("✗ STM32 interface not available")
         except Exception as e:
-            self.log_message(f"✗ Error setting device: {str(e)}", "red")
+            self.log_message(f"✗ Error setting device: {str(e)}")
 
     def set_angle_direct(self):
         """Set angle directly with optional offset"""
         if not self.pol_controller:
-            self.log_message("✗ Not connected to STM32", "red")
+            self.log_message("✗ Not connected to STM32")
             return
         
         try:
-            angle = float(self.angle_entry.get())
-            use_offset = self.offset_var.get()
+            angle = int(self.angle_entry.get())
+            if angle < 0 or angle > 360:
+                self.log_message("✗ Angle must be between 0 and 360 degrees")
+                return
+            use_offset = bool(self.offset_switch.get())
             
             hardware_driver = self.pol_controller.driver
             if hasattr(hardware_driver, 'stm'):
                 if use_offset:
-                    success = hardware_driver.stm.send_cmd_set_angle(angle, offset=True)
+                    success = hardware_driver.stm.send_cmd_set_angle(angle, is_offset=use_offset)
                     action = "set angle with offset"
                 else:
-                    success = hardware_driver.stm.send_cmd_set_angle(angle, offset=False)
+                    success = hardware_driver.stm.send_cmd_set_angle(angle, is_offset=use_offset)
                     action = "set angle"
                 
                 if success:
-                    self.log_message(f"✓ Successfully {action}: {angle}°", "green")
-                    self.angle_entry.delete(0, 'end')
+                    self.log_message(f"✓ Successfully {action}: {angle}°")
+                    # self.angle_entry.delete(0, 'end')
                 else:
-                    self.log_message(f"✗ Failed to {action}", "red")
+                    self.log_message(f"✗ Failed to {action}")
             else:
-                self.log_message("✗ STM32 interface not available", "red")
+                self.log_message("✗ STM32 interface not available")
         except ValueError:
-            self.log_message("✗ Invalid angle value", "red")
+            self.log_message("✗ Invalid angle value")
         except Exception as e:
-            self.log_message(f"✗ Error setting angle: {str(e)}", "red")
+            self.log_message(f"✗ Error setting angle: {str(e)}")
 
     def set_stepper_frequency(self):
         """Set stepper motor frequency"""
         if not self.pol_controller:
-            self.log_message("✗ Not connected to STM32", "red")
+            self.log_message("✗ Not connected to STM32")
             return
         
         try:
@@ -582,21 +582,21 @@ class PolarizationControllerGUI(ctk.CTk):
             if hasattr(hardware_driver, 'stm'):
                 success = hardware_driver.stm.send_cmd_set_frequency(frequency, is_stepper=True)
                 if success:
-                    self.log_message(f"✓ Set stepper frequency: {frequency} Hz", "green")
-                    self.stepper_entry.delete(0, 'end')
+                    self.log_message(f"✓ Set stepper frequency: {frequency} Hz")
+                    # self.stepper_entry.delete(0, 'end')
                 else:
-                    self.log_message("✗ Failed to set stepper frequency", "red")
+                    self.log_message("✗ Failed to set stepper frequency")
             else:
-                self.log_message("✗ STM32 interface not available", "red")
+                self.log_message("✗ STM32 interface not available")
         except ValueError:
-            self.log_message("✗ Invalid frequency value", "red")
+            self.log_message("✗ Invalid frequency value")
         except Exception as e:
-            self.log_message(f"✗ Error setting stepper frequency: {str(e)}", "red")
+            self.log_message(f"✗ Error setting stepper frequency: {str(e)}")
 
     def set_operation_period(self):
         """Set operation period"""
         if not self.pol_controller:
-            self.log_message("✗ Not connected to STM32", "red")
+            self.log_message("✗ Not connected to STM32")
             return
         
         try:
@@ -606,16 +606,16 @@ class PolarizationControllerGUI(ctk.CTk):
             if hasattr(hardware_driver, 'stm'):
                 success = hardware_driver.stm.send_cmd_set_frequency(period, is_stepper=False)
                 if success:
-                    self.log_message(f"✓ Set operation period: {period} s", "green")
-                    self.period_entry.delete(0, 'end')
+                    self.log_message(f"✓ Set operation period: {period} s")
+                    # self.period_entry.delete(0, 'end')
                 else:
-                    self.log_message("✗ Failed to set operation period", "red")
+                    self.log_message("✗ Failed to set operation period")
             else:
-                self.log_message("✗ STM32 interface not available", "red")
+                self.log_message("✗ STM32 interface not available")
         except ValueError:
-            self.log_message("✗ Invalid period value", "red")
+            self.log_message("✗ Invalid period value")
         except Exception as e:
-            self.log_message(f"✗ Error setting operation period: {str(e)}", "red")
+            self.log_message(f"✗ Error setting operation period: {str(e)}")
             
             
     def get_angle_for_state(self, basis: Basis, bit: Bit) -> int:

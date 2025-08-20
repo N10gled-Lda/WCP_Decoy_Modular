@@ -17,12 +17,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def test_polarization_hardware(com_port: str = "COM3"):
+def test_polarization_hardware(com_port: str = "COM4"):
     """
     Simple test of polarization hardware - similar to main1.py example.
     
     Args:
-        com_port: COM port for STM32 (default COM3)
+        com_port: COM port for STM32 (default COM4)
     """
     logger.info(f"Testing Polarization Hardware on {com_port}")
     logger.info("=" * 50)
@@ -93,32 +93,32 @@ def test_polarization_hardware(com_port: str = "COM3"):
                 
                 # Test polarization device setting
                 logger.info("  Testing polarization device setting...")
-                success = stm.send_cmd_polarization_device("Linear Polarizer")
+                success = stm.send_cmd_polarization_device(device=1)
                 logger.info(f"    Set device to Linear Polarizer: {'✅ Success' if success else '❌ Failed'}")
                 time.sleep(0.5)
                 
-                success = stm.send_cmd_polarization_device("Half Wave Plate")
+                success = stm.send_cmd_polarization_device(device=2)
                 logger.info(f"    Set device to Half Wave Plate: {'✅ Success' if success else '❌ Failed'}")
                 time.sleep(0.5)
                 
                 # Test direct angle setting
                 logger.info("  Testing direct angle setting...")
-                success = stm.send_cmd_set_angle(45.0)
+                success = stm.send_cmd_set_angle(45)
                 logger.info(f"    Set angle to 45°: {'✅ Success' if success else '❌ Failed'}")
                 time.sleep(0.5)
                 
-                success = stm.send_cmd_set_angle_offset(90.0)
+                success = stm.send_cmd_set_angle(90, is_offset=True)
                 logger.info(f"    Set angle with offset to 90°: {'✅ Success' if success else '❌ Failed'}")
                 time.sleep(0.5)
                 
                 # Test frequency settings
                 logger.info("  Testing frequency settings...")
-                success = stm.send_cmd_set_stepper_frequency(1000.0)
+                success = stm.send_cmd_set_frequency(1000, is_stepper=True)
                 logger.info(f"    Set stepper frequency to 1000 Hz: {'✅ Success' if success else '❌ Failed'}")
                 time.sleep(0.5)
                 
-                success = stm.send_cmd_set_operation_period(2.0)
-                logger.info(f"    Set operation period to 2.0 s: {'✅ Success' if success else '❌ Failed'}")
+                success = stm.send_cmd_set_frequency(2000)
+                logger.info(f"    Set operation period to 2000 ms: {'✅ Success' if success else '❌ Failed'}")
                 time.sleep(0.5)
                 
                 # Test polarization numbers
@@ -160,14 +160,14 @@ def test_with_gui_like_interface():
             if not com_port:
                 com_port = available_ports[0]
         else:
-            com_port = input("Enter COM port (e.g., COM3): ").strip()
+            com_port = input("Enter COM port (e.g., COM4): ").strip()
             if not com_port:
-                com_port = "COM3"
+                com_port = "COM4"
                 
     except ImportError:
-        com_port = input("Enter COM port (e.g., COM3): ").strip()
+        com_port = input("Enter COM port (e.g., COM4): ").strip()
         if not com_port:
-            com_port = "COM3"
+            com_port = "COM4"
     
     logger.info(f"Using COM port: {com_port}")
     
@@ -244,11 +244,23 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Simple Polarization Hardware Test")
-    parser.add_argument("--com-port", type=str, default="COM3", help="COM port (default: COM3)")
+    parser.add_argument("--com-port", type=str, default="COM4", help="COM port (default: COM4)")
     parser.add_argument("--interactive", action="store_true", help="Run interactive test")
+    parser.add_argument("--list-ports", action="store_true", help="List available COM ports")
     
     args = parser.parse_args()
     
+    if args.list_ports:
+        try:
+            import serial.tools.list_ports
+            ports = [port.device for port in serial.tools.list_ports.comports()]
+            print("Available COM ports:")
+            for port in ports:
+                print(f"  - {port}")
+        except ImportError:
+            print("Error: pyserial is not installed. Cannot list COM ports.")
+        return
+
     if args.interactive:
         success = test_with_gui_like_interface()
     else:

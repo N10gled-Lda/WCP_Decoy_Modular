@@ -70,54 +70,60 @@ class DigitalLaserDemo:
         
         try:
             interface = DigilentDigitalInterface(device_index=self.device_index, digital_channel=self.digital_channel)
-            with interface:
-                if not interface.connected:
-                    self.logger.error("Failed to connect to device")
-                    return False
-                
-                self.logger.info(f"✅ Connected to device on channel {self.digital_channel}")
-                
-                # Test pulse parameter configuration
-                self.logger.info("🔧 Testing pulse parameter configuration...")
-                interface.set_pulse_parameters(width=2e-6, frequency=1000.0, idle_state=False)
-                
-                # Test single pulse
-                self.logger.info("🔸 Testing single pulse...")
-                if interface.send_single_pulse():
-                    self.logger.info("✅ Single pulse sent successfully")
+            interface.connect()
+            if not interface.connected:
+                self.logger.error("Failed to connect to device")
+                return False
+            
+            self.logger.info(f"✅ Connected to device on channel {self.digital_channel}")
+            
+            # Test pulse parameter configuration
+            self.logger.info("🔧 Testing pulse parameter configuration...")
+            interface.set_pulse_parameters(width=2e-6, frequency=1000.0, idle_state=False)
+            
+            # Test single pulse
+            self.logger.info("🔸 Testing single pulse...")
+            if interface.send_single_pulse():
+                self.logger.info("✅ Single pulse sent successfully")
+            else:
+                self.logger.error("❌ Single pulse failed")
+                return False
+            
+            time.sleep(0.1)
+            
+            # Test pulse train
+            self.logger.info("🔸 Testing pulse train (5 pulses at 2 kHz)...")
+            if interface.start_pulse_train(5, 2000.0):
+                time.sleep(5 / 2000.0 + 0.1)  # Wait for completion
+                self.logger.info("✅ Pulse train completed")
+            else:
+                self.logger.error("❌ Pulse train failed")
+                return False
+            
+            # Test continuous mode briefly
+            self.logger.info("🔸 Testing continuous mode (1 second at 500 Hz)...")
+            if interface.start_continuous(500.0):
+                time.sleep(1.0)
+                if interface.stop():
+                    self.logger.info("✅ Continuous mode test completed")
                 else:
-                    self.logger.error("❌ Single pulse failed")
+                    self.logger.error("❌ Failed to stop continuous mode")
                     return False
-                
-                time.sleep(0.1)
-                
-                # Test pulse train
-                self.logger.info("🔸 Testing pulse train (5 pulses at 2 kHz)...")
-                if interface.start_pulse_train(5, 2000.0):
-                    time.sleep(5 / 2000.0 + 0.1)  # Wait for completion
-                    self.logger.info("✅ Pulse train completed")
-                else:
-                    self.logger.error("❌ Pulse train failed")
-                    return False
-                
-                # Test continuous mode briefly
-                self.logger.info("🔸 Testing continuous mode (1 second at 500 Hz)...")
-                if interface.start_continuous(500.0):
-                    time.sleep(1.0)
-                    if interface.stop():
-                        self.logger.info("✅ Continuous mode test completed")
-                    else:
-                        self.logger.error("❌ Failed to stop continuous mode")
-                        return False
-                else:
-                    self.logger.error("❌ Failed to start continuous mode")
-                    return False
-                
-                # Show final status
-                status = interface.get_status()
-                self.logger.info(f"📊 Interface status: {status}")
-                
-                return True
+            else:
+                self.logger.error("❌ Failed to start continuous mode")
+                return False
+            
+            # Show final status
+            status = interface.get_status()
+            self.logger.info(f"📊 Interface status: {status}")
+            shutdown_success = interface.stop()
+            if shutdown_success:
+                self.logger.info("✅ Interface shutdown successful")
+            else:
+                self.logger.error("❌ Failed to shutdown interface")
+                return False
+            
+            return True
                 
         except Exception as e:
             self.logger.error(f"Digital interface test failed: {e}")
@@ -134,14 +140,6 @@ class DigitalLaserDemo:
                     return False
                 
                 self.logger.info(f"✅ Laser driver initialized (state: {laser.state.value})")
-                
-                # Turn on laser
-                self.logger.info("🔌 Turning on laser...")
-                if laser.turn_on():
-                    self.logger.info(f"✅ Laser turned on (state: {laser.state.value})")
-                else:
-                    self.logger.error("❌ Failed to turn on laser")
-                    return False
                 
                 # Test single trigger
                 self.logger.info("🔸 Testing single trigger...")
@@ -188,14 +186,6 @@ class DigitalLaserDemo:
                     self.logger.error("❌ Failed to start continuous mode")
                     return False
                 
-                # Turn off laser
-                self.logger.info("🔌 Turning off laser...")
-                if laser.turn_off():
-                    self.logger.info(f"✅ Laser turned off (state: {laser.state.value})")
-                else:
-                    self.logger.error("❌ Failed to turn off laser")
-                    return False
-                
                 # Show comprehensive status
                 status = laser.get_status()
                 self.logger.info("📊 Final driver status:")
@@ -231,9 +221,6 @@ class DigitalLaserDemo:
                 else:
                     self.logger.warning("⚠️ Allowed trigger when off (unexpected)")
                 
-                # Turn on for further tests
-                laser.turn_on()
-                
                 # Test extreme frequencies
                 self.logger.info("🔸 Testing frequency limits...")
                 
@@ -245,7 +232,7 @@ class DigitalLaserDemo:
                     self.logger.warning("⚠️ Accepted excessive frequency")
                 
                 # Very low frequency
-                low_freq_result = laser.send_frame(1, 0.01)  # 0.01 Hz
+                low_freq_result = laser.send_frame(1, 0.1)  # 0.1 Hz
                 if low_freq_result:
                     self.logger.info("✅ Accepted very low frequency")
                 else:
@@ -351,3 +338,5 @@ def main():
 
 if __name__ == "__main__":
     exit(main())
+
+### DEPRECATED DEMO ???

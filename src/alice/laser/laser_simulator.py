@@ -201,14 +201,17 @@ class SimulatedLaserDriver(BaseLaserDriver):
         
         # Simulate photon number based on laser info
         mean_photon_number = self._calculate_mean_photon_number()
-        photon_number = np.random.poisson(mean_photon_number)
+        # print(f"Mean photon number: {mean_photon_number:.2f}")
+        photon_number = mean_photon_number
+        # photon_number = np.random.poisson(mean_photon_number)
+        
 
         # Simulate polarization
         # For simplicity, we can randomly choose a polarization angle
         polarization = np.random.choice([0, 45, 90, 135], p=[0.25, 0.25, 0.25, 0.25])
         # TODO - Implement a more sophisticated polarization model from laser_info
         
-        return Pulse(photon_number=photon_number, polarization=polarization)
+        return Pulse(photons=photon_number, polarization=polarization)
 
     def _calculate_mean_photon_number(self) -> float:
         """

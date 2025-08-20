@@ -65,16 +65,18 @@ class PolarizationHardware(BasePolarizationDriver):
                 raise ConnectionError(f"Failed to connect to STM32 on port {self.com_port}")
             
             self.connected = True
+            self.available = True
             self.logger.info(f"Successfully connected to STM32 on port {self.com_port}")
             
             # Set to initial state
-            self.set_polarization_state(PolarizationState.H)
+            # self.set_polarization_state(PolarizationState.H)
             
             return True
             
         except Exception as e:
             self.logger.error(f"Failed to initialize polarization hardware: {e}")
             self.connected = False
+            self.available = False
             return False
 
     def shutdown(self) -> None:
@@ -106,6 +108,15 @@ class PolarizationHardware(BasePolarizationDriver):
         try:
             if self.stm is None:
                 raise RuntimeError("STM32 interface not initialized.")
+            # Check and wait if available
+            if not self.available:
+                self.logger.warning("STM32 interface not available. Waiting for availability...")
+                start_time = time.time()
+                while not self.stm.available:
+                    if time.time() - start_time > 5:
+                        self.logger.error("STM32 interface did not become available within 5 seconds")
+                        raise TimeoutError("STM32 interface not available within the timeout period")
+                    time.sleep(0.01)
             # Send the polarization number to the STM32
             self.logger.debug(f"Sending polarization number {polarization_number} for normalized angle {normalized_angle}° and angle {angle_degrees}°")
             self.success_send_pol = self.stm.send_cmd_polarization_numbers([polarization_number])
@@ -297,15 +308,15 @@ class PolarizationHardware(BasePolarizationDriver):
         if abs(angle_degrees - 0.0) < 22.5:
             return 0  # Horizontal (0°)
         elif abs(angle_degrees - 45.0) < 22.5:
-            return 2  # Diagonal (45°)
+            return 1  # Diagonal (45°)
         elif abs(angle_degrees - 90.0) < 22.5:
-            return 1  # Vertical (90°)
+            return 2  # Vertical (90°)
         elif abs(angle_degrees - 135.0) < 22.5:
             return 3  # Anti-diagonal (135°)
         else:
             # Default to closest standard angle
             angles = [0.0, 45.0, 90.0, 135.0]
-            numbers = [0, 2, 1, 3]
+            numbers = [0, 1, 2, 3]
             
             min_diff = float('inf')
             closest_number = 0
@@ -364,9 +375,9 @@ class PolarizationHardware(BasePolarizationDriver):
             Polarization number (0-3)
         """
         if basis == 'Z':
-            return 0 if bit == 0 else 1  # 0 -> 0°, 1 -> 90°
+            return 0 if bit == 0 else 2  # 0 -> 0°, 2 -> 90°
         elif basis == 'X':
-            return 2 if bit == 0 else 3  # 0 -> 45°, 1 -> 135°
+            return 1 if bit == 0 else 3  # 1 -> 45°, 3 -> 135°
         else:
             raise ValueError(f"Unknown basis {basis}")
 
@@ -393,6 +404,15 @@ class PolarizationHardware(BasePolarizationDriver):
         polarization_number = self._map_to_polarization_number(basis, bit)
         
         try:
+            # Check and wait if available
+            if not self.available:
+                self.logger.warning("STM32 interface not available. Waiting for availability...")
+                start_time = time.time()
+                while not self.stm.available:
+                    if time.time() - start_time > 5:
+                        self.logger.error("STM32 interface did not become available within 5 seconds")
+                        raise TimeoutError("STM32 interface not available within the timeout period")
+                    time.sleep(0.1)
             success = self.stm.send_cmd_polarization_numbers([polarization_number])
             if not success:
                 raise RuntimeError(f"Failed to send polarization number {polarization_number}")
@@ -437,6 +457,15 @@ class PolarizationHardware(BasePolarizationDriver):
                                for b, bit in zip(processed_bases, bits)]
         
         try:
+            # Check and wait if available
+            if not self.available:
+                self.logger.warning("STM32 interface not available. Waiting for availability...")
+                start_time = time.time()
+                while not self.stm.available:
+                    if time.time() - start_time > 5:
+                        self.logger.error("STM32 interface did not become available within 5 seconds")
+                        raise TimeoutError("STM32 interface not available within the timeout period")
+                    time.sleep(0.1)            
             success = self.stm.send_cmd_polarization_numbers(polarization_numbers)
             if not success:
                 raise RuntimeError(f"Failed to send polarization numbers {polarization_numbers}")
@@ -491,7 +520,12 @@ class PolarizationHardware(BasePolarizationDriver):
     
     def _handle_stm32_available(self):
         """Callback for STM32 becoming available."""
-        self.available = True
+        if self.stm.available:
+            self.available = True
+            self.logger.info("✓ STM32 interface is now available for commands")
+        else:
+            self.available = False
+            self.logger.warning("STM32 interface is not available for commands yet")
         self.logger.info("STM32 interface available for commands")
     
     def __str__(self) -> str:

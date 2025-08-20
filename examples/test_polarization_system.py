@@ -3,6 +3,7 @@ Quick test script to verify all polarization components work with the new STM32 
 """
 import sys
 import os
+import time
 
 # Add the project root to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -44,7 +45,7 @@ def test_simulator():
         return False
 
 
-def test_hardware_interface(com_port: str = "COM3"):
+def test_hardware_interface(com_port: str = "COM4"):
     """Test the hardware interface (without actual hardware)."""
     logger.info(f"=== Testing Hardware Interface (COM{com_port}) ===")
     
@@ -60,6 +61,10 @@ def test_hardware_interface(com_port: str = "COM3"):
             
             # These will likely fail without hardware but should not crash
             try:
+                controller.initialize()
+                # time.sleep(2)  # Allow some time for initialization
+                controller.set_polarization_manually(Basis.Z, Bit.ONE)
+                # time.sleep(5)  # Allow some time for initialization
                 controller.set_polarization_manually(Basis.Z, Bit.ZERO)
                 logger.info("  ✅ Basic polarization control interface working")
             except Exception as e:
@@ -75,6 +80,7 @@ def test_hardware_interface(com_port: str = "COM3"):
                 logger.info("  ✅ New STM32 frequency control method available")
             if hasattr(hardware_driver, 'set_operation_period'):
                 logger.info("  ✅ New STM32 period control method available")
+            controller.shutdown()
                 
             logger.info("  ✅ All new STM32 interface methods are available")
             
@@ -102,16 +108,14 @@ def test_stm32_interface_structure():
         
         # Test interface creation (without actual connection)
         try:
-            interface = STM32Interface("COM_TEST")
+            interface = STM32Interface("COM4")
             logger.info("✅ STM32Interface object creation successful")
             
             # Check if new command methods exist
             new_commands = [
                 'send_cmd_polarization_device',
-                'send_cmd_set_angle', 
-                'send_cmd_set_angle_offset',
-                'send_cmd_set_stepper_frequency',
-                'send_cmd_set_operation_period',
+                'send_cmd_set_angle',
+                'send_cmd_set_frequency',
                 'send_cmd_polarization_numbers'
             ]
             
@@ -146,10 +150,10 @@ def main():
     stm32_ok = False
 
     # Test simulator
-    simulator_ok = test_simulator()
+    # simulator_ok = test_simulator()
     
     # Test hardware interface
-    # hardware_ok = test_hardware_interface()
+    hardware_ok = test_hardware_interface()
     
     # Test STM32 interface structure
     # stm32_ok = test_stm32_interface_structure()

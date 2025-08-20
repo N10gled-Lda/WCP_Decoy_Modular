@@ -81,7 +81,7 @@ def test_trigger_modes():
         # Test 2: TRAIN mode
         print(f"\n🔸 Testing {DigitalTriggerMode.TRAIN.value} mode (5 pulses at 2 kHz)...")
         freq= 1000000.0
-        nb_pulses = 10  # Number of pulses in the train
+        nb_pulses = 5  # Number of pulses in the train
         success = interface.trigger_laser(mode="train", count=nb_pulses, frequency=freq)
         # if success:
         #     time.sleep(5/freq + 0.1)  # Wait for completion

@@ -56,7 +56,7 @@ class LaserInfo(BaseModel):
     """Configuration for laser parameters."""
     central_wavelength_nm: float = Field(1550.0, ge=800, le=2000)
     linewidth_Hz: float = Field(1e6, ge=1e3, le=1e9)
-    max_power_mW: float = Field(10.0, ge=0.1, le=100.0)
+    max_power_mW: float = Field(10.0, ge=0.1, le=1000000.0)
     pulse_width_fwhm_ns: float = Field(100.0, ge=10, le=1000)
     pulse_energy_nJ: float = Field(0.1, ge=0.01, le=10.0)
     timing_jitter_ps: float = Field(5.0, ge=0, le=100)
@@ -76,8 +76,8 @@ class LaserInfo(BaseModel):
         return v
     @field_validator('max_power_mW')
     def validate_max_power(cls, v):
-        if not (0.1 <= v <= 100.0):
-            raise ValueError("Max power must be between 0.1 mW and 100 mW.")
+        if not (0.1 <= v <= 1000000.0):
+            raise ValueError("Max power must be between 0.1 mW and 1_000_000 mW.")
         return v
     @field_validator('pulse_width_fwhm_ns')
     def validate_pulse_width(cls, v):

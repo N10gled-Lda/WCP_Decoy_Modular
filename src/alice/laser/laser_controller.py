@@ -171,6 +171,7 @@ class LaserController:
                 self.logger.info(f"Sent frame at {rep_rate_hz} Hz")
             else:
                 self.logger.error("Failed to send frame")
+            self._active = False  # Reset active state after sending
             return success
         except Exception as e:
             self.logger.error(f"Error sending frame: {e}")
