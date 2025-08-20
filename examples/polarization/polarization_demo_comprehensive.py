@@ -175,11 +175,11 @@ class PolarizationControllerDemo:
                     hardware_driver = controller.driver
                     if hasattr(hardware_driver, 'set_polarization_device'):
                         self.logger.info("  Testing polarization device control...")
-                        success = hardware_driver.set_polarization_device("Linear Polarizer")
+                        success = hardware_driver.set_polarization_device(device=1)
                         self.logger.info(f"    Set to Linear Polarizer: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
                         
-                        success = hardware_driver.set_polarization_device("Half Wave Plate") 
+                        success = hardware_driver.set_polarization_device(device=2) 
                         self.logger.info(f"    Set to Half Wave Plate: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
                     
@@ -222,95 +222,6 @@ class PolarizationControllerDemo:
             self.logger.error(f"❌ Hardware controller test failed: {e}")
             return False
     
-    def test_stm32_interface_directly(self, com_port: str) -> bool:
-        """Test the STM32 interface directly (similar to the provided examples)."""
-        self.logger.info(f"=== Testing STM32 Interface Directly (COM{com_port}) ===")
-        
-        try:
-            from src.alice.polarization.hardware_pol.stm32_interface import STM32Interface
-            
-            # Create interface
-            stm = STM32Interface(com_port)
-            
-            # Define callbacks
-            def handle_connected():
-                self.logger.info("  ✅ STM32 connected")
-            
-            def handle_available():
-                self.logger.info("  ✅ STM32 available - testing all new commands...")
-                
-                # Test polarization numbers
-                success = stm.send_cmd_polarization_numbers([0, 1, 2, 3])
-                self.logger.info(f"    Polarization numbers [0,1,2,3]: {'✅ Success' if success else '❌ Failed'}")
-                
-                # Test device setting
-                success = stm.send_cmd_polarization_device("Linear Polarizer")
-                self.logger.info(f"    Set device to Linear Polarizer: {'✅ Success' if success else '❌ Failed'}")
-                
-                success = stm.send_cmd_polarization_device("Half Wave Plate")
-                self.logger.info(f"    Set device to Half Wave Plate: {'✅ Success' if success else '❌ Failed'}")
-                
-                # Test angle setting
-                success = stm.send_cmd_set_angle(45.0, False)
-                self.logger.info(f"    Set angle to 45°: {'✅ Success' if success else '❌ Failed'}")
-                
-                success = stm.send_cmd_set_angle(90.0, True)
-                self.logger.info(f"    Set angle with offset to 90°: {'✅ Success' if success else '❌ Failed'}")
-                
-                # Test frequency settings
-                success = stm.send_cmd_set_frequency(1200.0, True)
-                self.logger.info(f"    Set stepper frequency to 1200 Hz: {'✅ Success' if success else '❌ Failed'}")
-                
-                success = stm.send_cmd_set_frequency(2.5, False)
-                self.logger.info(f"    Set operation period to 2.5 s: {'✅ Success' if success else '❌ Failed'}")
-                
-                self.logger.info("  ✅ All STM32 commands tested successfully")
-            
-            def handle_polarization_status(status):
-                status_names = {
-                    0: "SUCCESS",
-                    1: "INVALID_ID",
-                    2: "WRONG_POLARIZATIONS", 
-                    3: "MISMATCH_QUANTITY",
-                    4: "OVERFLOW",
-                    5: "UNKNOWN_ERROR"
-                }
-                status_name = status_names.get(status, f"UNKNOWN({status})")
-                self.logger.info(f"  📊 Polarization status: {status_name}")
-            
-            # Attach callbacks
-            stm.on_connected = handle_connected
-            stm.on_available = handle_available
-            stm.on_polarization_status = handle_polarization_status
-            
-            # Start interface
-            stm.start()
-            stm.connect()
-            
-            # Wait for communication
-            self.logger.info("  Waiting for STM32 communication...")
-            start_time = time.time()
-            
-            while time.time() - start_time < 5.0:  # 5 second timeout
-                if stm.connected and stm.available:
-                    break
-                time.sleep(0.1)
-            
-            if stm.connected:
-                self.logger.info("  ✅ STM32 interface test completed successfully")
-                success = True
-            else:
-                self.logger.error("  ❌ STM32 failed to connect within timeout")
-                success = False
-            
-            # Cleanup
-            stm.stop()
-            return success
-            
-        except Exception as e:
-            self.logger.error(f"❌ STM32 interface test failed: {e}")
-            return False
-    
     def list_available_com_ports(self) -> List[str]:
         """List available COM ports."""
         try:
@@ -329,7 +240,6 @@ class PolarizationControllerDemo:
         simulator_success = self.test_simulator_controller()
         
         hardware_success = True  # Default to success if not testing
-        stm32_success = True
         
         if test_hardware:
             if com_port is None:
@@ -345,9 +255,6 @@ class PolarizationControllerDemo:
             
             # Test hardware controller
             hardware_success = self.test_hardware_controller(com_port)
-            
-            # Test STM32 interface directly
-            stm32_success = self.test_stm32_interface_directly(com_port)
         
         # Summary
         self.logger.info("\n" + "="*60)
@@ -360,8 +267,7 @@ class PolarizationControllerDemo:
         
         if test_hardware:
             results.extend([
-                ("Hardware Controller", hardware_success),
-                ("STM32 Interface Direct", stm32_success)
+                ("Hardware Controller", hardware_success)
             ])
         
         for test_name, success in results:
@@ -384,7 +290,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="Polarization Controller Demo")
     parser.add_argument("--hardware", action="store_true", help="Test hardware controller")
-    parser.add_argument("--com-port", type=str, help="COM port for hardware testing (e.g., COM3)")
+    parser.add_argument("--com-port", type=str, help="COM port for hardware testing (e.g., COM4)")
     parser.add_argument("--simulator-only", action="store_true", help="Test simulator only")
     
     args = parser.parse_args()

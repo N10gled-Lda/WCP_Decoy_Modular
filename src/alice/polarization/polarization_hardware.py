@@ -372,7 +372,7 @@ class PolarizationHardware(BasePolarizationDriver):
             bit: Bit value (0 or 1)
             
         Returns:
-            Polarization number (0-3)
+            Polarization number (0-3): 0 - H/0°, 1 - D/45°, 2 - V/90°, 3 - A/135°
         """
         if basis == 'Z':
             return 0 if bit == 0 else 2  # 0 -> 0°, 2 -> 90°
