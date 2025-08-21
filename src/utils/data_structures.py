@@ -27,6 +27,9 @@ class Pulse:
     def __str__(self):
         return f"Pulse(polarization={self.polarization}, photons={self.photons})"
 
+    def copy(self):
+        return Pulse(polarization=self.polarization, photons=self.photons)
+
 
 class DecoyState(IntEnum):
     """Decoy state types for BB84 with three-intensity protocol."""

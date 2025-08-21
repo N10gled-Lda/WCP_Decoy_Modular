@@ -1,15 +1,14 @@
 """VOA Controller."""
 import logging
 import math
-from abc import ABC, abstractmethod
 from typing import Dict, Optional, Tuple, Union
 from dataclasses import dataclass
 
+from src.alice.voa.voa_hardware import VOAHardwareDriver
+from src.alice.voa.voa_simulator import VOASimulator
 from src.utils.data_structures import DecoyState, DecoyInfo
 from src.alice.qrng import QRNGSimulator, QRNGHardware, OperationMode
-
-# from .voa_simulator import VOASimulator
-# from .voa_hardware import VOAHardware
+from .voa_base import BaseVOADriver
 
 
 class DecoyInfoExtended(DecoyInfo):
@@ -68,55 +67,26 @@ class VOAOutput:
     target_intensity: float
 
 
-class BaseVOADriver(ABC):
-    """Hardware-independent VOA controller interface."""
-    # The abstract methods need to be implemented by all subclasses.
-
-    @abstractmethod
-    def set_attenuation(self, attenuation_db: float) -> None:
-        """Set the VOA attenuation."""
-    
-    @abstractmethod
-    def get_attenuation(self) -> float:
-        """Get the current VOA attenuation."""
-
-    @abstractmethod
-    def get_output_from_attenuation(self):
-        """Get the output needed for a given attenuation."""
-
-    @abstractmethod
-    def initialize(self) -> None:
-        """Initialize the VOA hardware or simulator."""
-    
-    @abstractmethod
-    def shutdown(self) -> None:
-        """Shutdown the VOA hardware or simulator."""
-    
-    @abstractmethod
-    def reset(self) -> None:
-        """Reset the VOA to its default state."""
-
-
 class VOAController:
     """Controls the VOA with QRNG-based state selection and intensity management."""
     
     def __init__(self, 
-                 driver: BaseVOADriver,
+                 driver: Union[BaseVOADriver, VOASimulator, VOAHardwareDriver],
                  physical: bool = False,
                  qrng_driver: Union[QRNGSimulator, QRNGHardware] = None,
-                 decoy_info: Optional[DecoyInfoExtended] = None,
-                 n_pulse_initial: float = 1.0):
+                 decoy_info: Optional[DecoyInfoExtended] = None):
         """
         Initialize VOA controller.
         
         Args:
-            physical: Whether to use physical hardware or simulator
+            driver: The driver to use for controlling the VOA (e.g., VOASimulator or VOAHardwareDriver)
+            physical: Whether to use physical hardware or simulator (DEPRECATED)
             decoy_info: DecoyInfo configuration with intensities and probabilities
             n_pulse_initial: Initial number of photons per pulse (for attenuation calculation)
         """
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.physical = physical
-        self.n_pulse_initial = n_pulse_initial
+        self.n_pulse_initial = 1000
         self.current_attenuation = 0.0
         self.current_state = DecoyState.SIGNAL
         self.is_on = False  # Track if the controller is initialized
@@ -145,7 +115,7 @@ class VOAController:
         self.voa_driver = driver
         self.qrng_driver = qrng_driver if qrng_driver else QRNGSimulator()
         
-        self.logger.info(f"VOA controller initialized in {'physical' if physical else 'simulation'} mode.")
+        # self.logger.info(f"VOA controller initialized in {'physical' if physical else 'simulation'} mode.")
         self.logger.info(f"Intensities: {self.decoy_info.intensities}")
         self.logger.info(f"Probabilities: {self.decoy_info.probabilities}")
 
@@ -220,6 +190,7 @@ class VOAController:
         else:
             raise ValueError(f"QRNG returned an unexpected value of bit (should be 0 or 1): {bit}")
 
+        self.set_state(selected_state)
         logging.debug(f"Biased bits -> {selected_state} (p_signal={p_signal:.3f}, "
                       f"p_weak={p_weak:.3f}, p_vac={p_vacuum:.3f})")
         return selected_state
@@ -249,6 +220,7 @@ class VOAController:
         }
         
         selected_state = state_map[(bit1, bit2)]
+        self.set_state(selected_state)
         logging.debug(f"Bits ({bit1},{bit2}) -> {selected_state}")
         return selected_state
 
@@ -260,7 +232,6 @@ class VOAController:
 
         # Convert to state
         state = self.get_state_from_bits(bit1, bit2)
-        self.current_state = state
         
         logging.debug(f"Random state selected: {state}")
         return state
@@ -273,13 +244,15 @@ class VOAController:
         
         Args:
             target_mu: Target mean photon number
-            
+            nb_pulse: Number of pulses to use for calculation.
+                      If None, uses the initial n_pulse_initial (default 1000).
+
         Returns:
             Attenuation in dB
         """
         if target_mu <= 0:
             # For vacuum state (μ=0), use maximum attenuation
-            return 60.0  # High attenuation for vacuum
+            return 100.0  # High attenuation for vacuum
         
         if nb_pulse is not None:
             if nb_pulse <= 0:
@@ -292,7 +265,7 @@ class VOAController:
         attenuation_db = 10 * math.log10(self.n_pulse_initial / target_mu)
         
         # Ensure reasonable bounds
-        attenuation_db = max(0.0, min(attenuation_db, 60.0))
+        attenuation_db = max(0.0, min(attenuation_db, 100.0))
         
         logging.debug(f"Calculated attenuation: {attenuation_db:.2f} dB for μ={target_mu}")
         return attenuation_db
@@ -350,7 +323,7 @@ class VOAController:
         """Get the current VOA attenuation."""
         return self.current_attenuation
 
-    def select_state(self, state: DecoyState) -> None:
+    def set_state(self, state: DecoyState) -> None:
         """Manually select a specific VOA state."""
         self.current_state = state
         
@@ -359,6 +332,17 @@ class VOAController:
         
         logging.debug(f"State manually selected: {state}")
 
+    def get_current_state(self) -> DecoyState:
+        """Get the current VOA state."""
+        return self.current_state
+    
+    def get_current_attenuation(self) -> float:
+        """Get the current VOA attenuation."""
+        return self.current_attenuation
+
+    def get_current_target_intensity(self) -> float:
+        """Get the current target intensity."""
+        return self.decoy_info.get_intensity(self.current_state)
 
     def initialize(self) -> None:
         """Initialize the VOA and QRNG."""

@@ -3,10 +3,11 @@ import logging
 from queue import Queue
 import queue
 from functools import wraps
+from typing import Optional, Dict, Any
 
 import numpy as np
 
-from src.alice.voa.voa_controller import BaseVOADriver
+from src.alice.voa.voa_base import BaseVOADriver
 from src.utils.data_structures import Pulse, LaserInfo
 
 def ensure_on(fn):
@@ -20,52 +21,42 @@ def ensure_on(fn):
 
 class VOASimulator(BaseVOADriver):
     """Simulates the behavior of a VOA."""
-    def __init__(self, pulses_queue: Queue[Pulse], attenuated_pulses_queue: Queue[Pulse], laser_info: LaserInfo):
+    
+    def __init__(self, pulses_queue: Queue[Pulse], attenuated_pulses_queue: Queue[Pulse], 
+                 laser_info: Optional[LaserInfo] = None):
         """Initialize the VOA simulator."""
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.pulses_queue = pulses_queue
         self.attenuated_pulses_queue = attenuated_pulses_queue
-        self.laser_info = laser_info
+        self.laser_info = laser_info if laser_info else LaserInfo(
+            max_power_mW=100.0,
+            pulse_width_fwhm_ns=10.0,
+            central_wavelength_nm=1550.0
+        )
 
         self.attenuation_db = 0.0
         self._is_on = False
 
         self.logger.info("VOA simulator initialized.")
 
-    def set_attenuation(self, attenuation: float):
+    @ensure_on
+    def set_attenuation(self, attenuation: float) -> None:
         """Sets the VOA attenuation."""
-        self.logger.info(f"Simulating setting VOA attenuation to {attenuation}.")
+        self.logger.debug(f"Setting VOA attenuation to {attenuation:f} dB")
         self.attenuation_db = attenuation
 
     def get_attenuation(self) -> float:
         """Returns the current VOA attenuation."""
-        logging.info(f"Simulating getting VOA attenuation: {self.attenuation_db}.")
+        self.logger.debug(f"Getting VOA attenuation: {self.attenuation_db:.2f} dB")
         return self.attenuation_db
     
-    def get_output_from_attenuation(self):
-        """Returns the output needed for a given attenuation."""
+    def get_output_from_attenuation(self) -> float:
+        """Returns the output power factor for the current attenuation."""
         factor = 10 ** (-self.attenuation_db / 10)
-        out_mw = 1.0 * factor
-        self.logger.info(
-            f"VOA atten={self.attenuation_db} dB → out={out_mw:.3f} mW"
-        )
-        return out_mw
+        out = 1.0 * factor
+        self.logger.debug(f"VOA attenuation={self.attenuation_db:.2f} dB → output ={out:.6f}")
+        return out
 
-    @ensure_on
-    def _apply_attenuation_pulse(self, pulse: Pulse) -> Pulse:
-        """Attenuate a pulse based on the current attenuation."""
-        # Simulate attenuation by applying the attenuation into the number of photons of the pulse
-        attenuation_linear = 10 ** (-self.attenuation_db / 10)
-
-        # Apply the attenuation factor to the pulse's photon count
-        self.logger.debug(f"Pulse before attenuation: {pulse.photons / attenuation_linear} photons")
-        # pulse.photons *= attenuation_linear
-        pulse.photons = round(np.random.binomial(n=pulse.photons, p=attenuation_linear))
-        
-        self.logger.info(f"Attenuated pulse: {pulse}")
-        self.logger.debug(f"Pulse after attenuation: {pulse.photons} photons (given attenuation {self.attenuation_db} dB)")
-        return pulse
-    
     @ensure_on
     def apply_attenuation_queue(self):
         """Attenuate all pulses in the queue based on the current attenuation."""
@@ -88,7 +79,7 @@ class VOASimulator(BaseVOADriver):
             attenuated_pulse = self._apply_attenuation_pulse(pulse)
             self.attenuated_pulses_queue.put(attenuated_pulse)
 
-
+    
         # while True:
         #     try:
         #         # Get pulse and attenuation from input queue
@@ -110,12 +101,27 @@ class VOASimulator(BaseVOADriver):
         #         # Queue timeout or other error
         #         continue
 
+    @ensure_on
+    def _apply_attenuation_pulse(self, pulse: Pulse) -> Pulse:
+        """Attenuate a pulse based on the current attenuation."""
+        # Simulate attenuation by applying the attenuation into the number of photons of the pulse
+        attenuation_linear = 10 ** (-self.attenuation_db / 10)
 
-        self.logger.info("All pulses in the queue have been attenuated.")
+        # Apply the attenuation factor to the pulse's photon count
+        self.logger.debug(f"Pulse before attenuation: {pulse.photons / attenuation_linear} photons")
+
+        attenuated_pulse = pulse.copy()
+        # attenuated_pulse.photons *= attenuation_linear
+        attenuated_pulse.photons = round(np.random.binomial(n=pulse.photons, p=attenuation_linear))
+
+        self.logger.debug(f"Attenuated pulse: {attenuated_pulse} (given attenuation {self.attenuation_db} dB)")
+
+        return attenuated_pulse
 
     def initialize(self) -> None:
         """Initialize the VOA simulator."""
         self._is_on = True
+        self.attenuation_db = 0.0
         self.logger.info("VOA simulator initialized.")
 
     def shutdown(self) -> None:
@@ -126,26 +132,27 @@ class VOASimulator(BaseVOADriver):
     def reset(self) -> None:
         """Reset attenuation, clear both queues and power setting."""
         self.attenuation_db = 0.0
-        with self.pulses_queue.mutex:
-            self.pulses_queue.queue.clear()
-        with self.attenuated_pulses_queue.mutex:
-            self.attenuated_pulses_queue.queue.clear()
+        
+        # Clear queues if they exist
+        if self.pulses_queue:
+            with self.pulses_queue.mutex:
+                self.pulses_queue.queue.clear()
+        if self.attenuated_pulses_queue:
+            with self.attenuated_pulses_queue.mutex:
+                self.attenuated_pulses_queue.queue.clear()
+                
         self._is_on = False
         self.logger.info("VOA simulator reset.")
 
-
-# class BaseVOADriver(ABC):
-#     """Hardware-independent VOA controller interface."""
-#     # The abstract methods need to be implemented by all subclasses.
-
-#     @abstractmethod
-#     def set_attenuation(self, attenuation_db: float) -> None:
-#         """Set the VOA attenuation."""
-    
-#     @abstractmethod
-#     def get_attenuation(self) -> float:
-#         """Get the current VOA attenuation."""
-
-#     @abstractmethod
-#     def get_output_from_attenuation(self):
-#         """Get the output needed for a given attenuation."""
+    def get_status(self) -> Dict[str, Any]:
+        """Get the current status of the VOA simulator."""
+        return {
+            "driver_type": self.__class__.__name__,
+            "attenuation_db": self.attenuation_db,
+            "initialized": self._is_on,
+            "active": self._is_on,
+            "queue_sizes": {
+                "input": self.pulses_queue.qsize() if self.pulses_queue else 0,
+                "output": self.attenuated_pulses_queue.qsize() if self.attenuated_pulses_queue else 0
+            }
+        }
