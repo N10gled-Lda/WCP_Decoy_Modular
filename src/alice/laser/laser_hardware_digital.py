@@ -11,25 +11,13 @@ from src.alice.laser.hardware_laser.digilent_digital_interface import DigilentDi
 from src.alice.laser.laser_base import BaseLaserDriver
 
 
-
 def ensure_connected(fn):
     """Decorator to ensure the laser hardware is connected before operation."""
     @wraps(fn)
     def wrapper(self, *args, **kwargs):
         if not self.interface.connected:
             self.logger.error("Digilent device is not connected.")
-            raise RuntimeError("Laser hardware must be connected first. Call initialize().")
-        return fn(self, *args, **kwargs)
-    return wrapper
-
-
-
-def ensure_connected(fn):
-    """Decorator to ensure the laser hardware is connected before operation."""
-    @wraps(fn)
-    def wrapper(self, *args, **kwargs):
-        if not self.interface.connected:
-            self.logger.error("Digilent device is not connected.")
+            self.state = LaserState.ERROR
             raise RuntimeError("Laser hardware must be connected first. Call initialize().")
         return fn(self, *args, **kwargs)
     return wrapper
@@ -72,10 +60,10 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
         self.state = LaserState.OFF
         
         # Laser parameters
-        self.pulse_width = 1e-6      # 1 microsecond default
+        self.duty_cycle = 0.1        # 10% duty cycle default (good for triggering)
         self.frequency = 1000.0      # 1 kHz default
         self.max_frequency = 50e6    # 50 MHz maximum
-        self.min_pulse_width = 10e-9 # 10 ns minimum
+        self.min_duty_cycle = 0.01   # 1% minimum duty cycle
         
         # State tracking
         self.trigger_count = 0
@@ -126,7 +114,7 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             
             # Set initial pulse parameters
             self.interface.set_pulse_parameters(
-                width=self.pulse_width,
+                duty_cycle=self.duty_cycle,
                 frequency=self.frequency,
                 idle_state=False  # Idle low for laser triggering
             )
@@ -143,7 +131,7 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             self.state = LaserState.ERROR
             return False
     
-    def shutdown(self):
+    def shutdown(self) -> bool:
         """Shutdown the laser hardware."""
         self.logger.info("Shutting down digital laser hardware...")
         
@@ -161,10 +149,11 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             
             self.state = LaserState.OFF
             self.logger.info("Digital laser hardware shutdown complete")
-            
+            return True
         except Exception as e:
             self.logger.error(f"Error during shutdown: {e}")
-    
+            return False
+
     @ensure_connected
     def trigger_once(self) -> bool:
         """Send a single trigger pulse."""
@@ -187,7 +176,8 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             self.logger.error(f"Error sending trigger pulse: {e}")
             return False
     
-    def send_frame(self, n_triggers: int, rep_rate_hz: float) -> bool:
+    @ensure_connected
+    def send_frame(self, n_triggers: int, rep_rate_hz: float = None) -> bool:
         """
         Send a frame of multiple trigger pulses.
         
@@ -224,7 +214,8 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             self.logger.error(f"Error sending frame: {e}")
             return False
     
-    def start_continuous(self, rep_rate_hz: float) -> bool:
+    @ensure_connected
+    def start_continuous(self, rep_rate_hz: float = None) -> bool:
         """
         Start continuous trigger pulse generation.
         
@@ -271,31 +262,31 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             self.logger.error(f"Error stopping continuous mode: {e}")
             return False
     
-    def set_pulse_parameters(self, width: float, frequency: float = None):
+    def set_pulse_parameters(self, duty_cycle: float, frequency: float = None):
         """
         Set pulse parameters.
         
         Args:
-            width: Pulse width in seconds
+            duty_cycle: Duty cycle as fraction (0.0-1.0, e.g., 0.1 = 10%)
             frequency: Optional frequency in Hz (updates default)
         """
         # Validate parameters
-        width = max(self.min_pulse_width, min(width, 1e-3))  # 10ns to 1ms
+        duty_cycle = max(self.min_duty_cycle, min(duty_cycle, 0.99))  # 1% to 99%
         
         if frequency is not None:
             frequency = max(0.1, min(frequency, self.max_frequency))
             self.frequency = frequency
         
-        self.pulse_width = width
+        self.duty_cycle = duty_cycle
         
         try:
             self.interface.set_pulse_parameters(
-                width=self.pulse_width,
+                duty_cycle=self.duty_cycle,
                 frequency=self.frequency,
                 idle_state=self.idle_state
             )
 
-            self.logger.info(f"Pulse parameters updated: width={self.pulse_width*1e6:.1f}μs, freq={self.frequency:.1f}Hz, idle_state={'high' if self.idle_state else 'low'}")
+            self.logger.info(f"Pulse parameters updated: duty_cycle={self.duty_cycle*100:.1f}%, freq={self.frequency:.1f}Hz, idle_state={'high' if self.idle_state else 'low'}")
 
         except Exception as e:
             self.logger.error(f"Failed to set pulse parameters: {e}")
@@ -311,7 +302,7 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             "hardware_type": "digital_digilent",
             "device_index": self.device_index,
             "digital_channel": self.digital_channel,
-            "pulse_width_us": self.pulse_width * 1e6,
+            "duty_cycle_percent": self.duty_cycle * 100,
             "frequency_hz": self.frequency,
             "max_frequency_hz": self.max_frequency,
             "trigger_count": self.trigger_count,
@@ -322,7 +313,10 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
         
         return status
     
-    
+    def is_initialized(self) -> bool:
+        """Check if the driver is initialized and ready."""
+        return self.state == LaserState.ON and self.interface.connected
+
     def _start_monitoring(self):
         """Start background monitoring thread."""
         self._stop_monitoring.clear()
@@ -373,39 +367,3 @@ def create_digital_laser_driver(device_index: int = -1, digital_channel: int = 8
     """
     driver = DigitalHardwareLaserDriver(device_index, digital_channel)
     return driver
-
-
-if __name__ == "__main__":
-    """Test the digital hardware driver."""
-    logging.basicConfig(level=logging.INFO)
-    
-    print("Testing DigitalHardwareLaserDriver...")
-    
-    # Test with context manager
-    with create_digital_laser_driver(digital_channel=8) as laser:
-        if laser.state == LaserState.ERROR or not laser.interface.connected:
-            print("❌ Failed to initialize laser driver")
-        else:
-            print("✅ Laser driver initialized")
-            
-            # Test single trigger
-            print("🔸 Testing single trigger...")
-            laser.trigger_once()
-            time.sleep(0.1)
-            
-            # Test frame
-            print("🔸 Testing frame (5 triggers at 1kHz)...")
-            laser.send_frame(5, 1000.0)
-            time.sleep(0.1)
-            
-            # Test continuous mode briefly
-            print("🔸 Testing continuous mode...")
-            laser.start_continuous(500.0)
-            time.sleep(1.0)
-            laser.stop_continuous()
-            
-            # Show final status
-            status = laser.get_status()
-            print(f"📊 Final status: trigger_count={status['trigger_count']}")
-            
-            print("✅ Digital laser driver test completed")

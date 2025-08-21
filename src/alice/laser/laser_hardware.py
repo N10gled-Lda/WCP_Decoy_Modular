@@ -99,7 +99,7 @@ class HardwareLaserDriver(BaseLaserDriver):
             self.logger.error(f"Error initializing laser hardware: {e}")
             return False
 
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """Shutdown the laser hardware."""
         try:
             if self.digilent.running:
@@ -108,8 +108,10 @@ class HardwareLaserDriver(BaseLaserDriver):
             self._is_on = False
             self._is_armed = False
             self.logger.info("Laser hardware shut down")
+            return True
         except Exception as e:
             self.logger.error(f"Error during shutdown: {e}")
+            return False
 
     @ensure_connected
     def trigger_once(self) -> bool:
@@ -130,7 +132,7 @@ class HardwareLaserDriver(BaseLaserDriver):
             return False
 
     @ensure_connected
-    def send_frame(self, n_triggers: int, rep_rate_hz: float) -> bool:
+    def send_frame(self, n_triggers: int, rep_rate_hz: float = None) -> bool:
         """
         Send a frame of multiple trigger pulses.
         
@@ -162,7 +164,7 @@ class HardwareLaserDriver(BaseLaserDriver):
             return False
 
     @ensure_connected
-    def start_continuous(self, rep_rate_hz: float) -> bool:
+    def start_continuous(self, rep_rate_hz: float = None) -> bool:
         """
         Start continuous laser emission.
         

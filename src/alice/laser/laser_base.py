@@ -15,7 +15,7 @@ class BaseLaserDriver(ABC):
         pass
 
     @abstractmethod
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """Shutdown the laser hardware."""
         pass
 
@@ -25,7 +25,7 @@ class BaseLaserDriver(ABC):
         pass
 
     @abstractmethod
-    def send_frame(self, n_triggers: int, rep_rate_hz: float) -> bool:
+    def send_frame(self, n_triggers: int, rep_rate_hz: float = None) -> bool:
         """
         Send a frame of multiple trigger pulses.
         Args:
@@ -37,7 +37,7 @@ class BaseLaserDriver(ABC):
         pass
 
     @abstractmethod
-    def start_continuous(self, rep_rate_hz: float) -> bool:
+    def start_continuous(self, rep_rate_hz: float = None) -> bool:
         """
         Start continuous trigger pulse generation.
         

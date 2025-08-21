@@ -92,7 +92,7 @@ class DigilentDigitalInterface:
         self.running = False
         
         # Digital pulse parameters
-        self.pulse_width = 1e-6  # 1 microsecond default pulse width
+        self.duty_cycle = 0.5  # 50% duty cycle default
         self.frequency = 1000.0  # 1 kHz default frequency
         self.idle_state = False  # Idle low
         
@@ -183,10 +183,10 @@ class DigilentDigitalInterface:
                 self.logger.error("Failed to enable digital output")
                 return False
             
-            # Set Type to Pulse
-            if self.dwf.FDwfDigitalOutTypeSet(self.hdwf, c_int(self.digital_channel), DwfDigitalOutTypePulse) != 1:
-                self.logger.error("Failed to set digital output type to Pulse")
-                return False
+            # # Set Type to Pulse
+            # if self.dwf.FDwfDigitalOutTypeSet(self.hdwf, c_int(self.digital_channel), DwfDigitalOutTypePulse) != 1:
+            #     self.logger.error("Failed to set digital output type to Pulse")
+            #     return False
             
             # Set idle state (low by default)
             # FDwfDigitalOutIdleSet(HDWF hdwf, int idxChannel, DwfDigitalOutIdle v)
@@ -227,19 +227,21 @@ class DigilentDigitalInterface:
 
             print(f"Divider set to: {divider} (internal clock {internal_clock.value} Hz / frequency {self.frequency} Hz / max count {max_count.value})")
             
-            # Calculate low/high ticks based on pulse width
+            # Calculate low/high ticks based on duty cycle
             pulse_ticks = int(math.ceil(internal_clock.value / self.frequency / divider))
-            duty_cycle = self.pulse_width * self.frequency  # Pulse width in ticks
-            print(f"Duty cycle: {duty_cycle:.6f} of pulse are high")
-            if duty_cycle > 1:
-                self.logger.warning(f"Pulse width {self.pulse_width:.6f}s exceeds pulse period {1/self.frequency:.6f}s, clamping to 50% duty cycle")
-                duty_cycle = 0.5  # Clamp to 50% if exceeds period
+            duty_cycle = max(0.0001, min(self.duty_cycle, 0.99))  # Clamp to 0.01%-99%
+            print(f"Duty cycle: {duty_cycle*100:.1f}% of pulse are high")
+            
+            if duty_cycle > 0.9:
+                self.logger.warning(f"Duty cycle {duty_cycle*100:.1f}% is quite high, consider reducing for better edge triggering")
+            if duty_cycle < 0.0001:
+                self.logger.warning(f"Duty cycle {duty_cycle*100:.1f}% is quite low, consider increasing for better edge triggering")   
 
             high_ticks = int(round(pulse_ticks * duty_cycle))
             low_ticks = pulse_ticks - high_ticks
             t_ticks = 1 / (internal_clock.value / divider)  # Time per tick
 
-            print(f"Counter Set Pulse parameters: width={self.pulse_width:f}s, "
+            print(f"Counter Set Pulse parameters: duty_cycle={duty_cycle*100:.1f}%, "
                   f"freq={self.frequency:.1f}Hz, "
                   f"pulse={pulse_ticks} clk, "
                   f"low_ticks={low_ticks}, high_ticks={high_ticks}"
@@ -259,30 +261,30 @@ class DigilentDigitalInterface:
                 self.logger.info(f"Counter set: low={low_ticks}, high={high_ticks} (pulse {pulse_ticks} clk)")
 
             self.logger.debug(
-                f"Updated pulse parameters: width={self.pulse_width*1e6:.1f}μs "
+                f"Updated pulse parameters: duty_cycle={self.duty_cycle*100:.1f}% "
                 f"({high_ticks} clk), freq={self.frequency:.1f}Hz "
                 f"(pulse {pulse_ticks} clk)")
         except Exception as e:
             self.logger.error(f"Error updating pulse parameters: {e}")
     
-    def set_pulse_parameters(self, width: float, frequency: float, idle_state: bool = False):
+    def set_pulse_parameters(self, duty_cycle: float, frequency: float, idle_state: bool = False):
         """
         Set pulse parameters.
         
         Args:
-            width: Pulse width in seconds
+            duty_cycle: Duty cycle as fraction (0.0-1.0, e.g., 0.5 = 50%)
             frequency: Pulse frequency in Hz
             idle_state: Idle state (True=high, False=low)
             [idle state is the resting logic-level of the digital line when you're not outputting a pulse]
         """
-        self.pulse_width = max(1e-12, min(width, 1.0))  # Clamp between 1ps and 1s
+        self.duty_cycle = max(0.01, min(duty_cycle, 0.99))  # Clamp between 1% and 99%
         self.frequency = max(0.1, min(frequency, 50e6))  # Clamp between 0.1Hz and 50MHz
         self.idle_state = idle_state
         
         if self.connected:
             self._update_pulse_parameters()
         
-        self.logger.info(f"Pulse parameters set: width={self.pulse_width*1e6:.1f}μs, "
+        self.logger.info(f"Pulse parameters set: duty_cycle={self.duty_cycle*100:.1f}%, "
                         f"freq={self.frequency:.1f}Hz, idle={'HIGH' if idle_state else 'LOW'}")
     
     def trigger_laser(self, mode: str = "single", count: int = 1, frequency: float = None) -> bool:
@@ -324,7 +326,7 @@ class DigilentDigitalInterface:
             return False
         
         try:
-            print(f"frequency: {self.frequency:.1f} Hz, width: {self.pulse_width*1e6:.1f} μs")
+            print(f"frequency: {self.frequency:.1f} Hz, duty_cycle: {self.duty_cycle*100:.1f}%")
             # Configure for single pulse
             if self.dwf.FDwfDigitalOutRepeatSet(self.hdwf, c_int(1)) != 1:
                 self.logger.error("Failed to set single pulse mode")
@@ -385,7 +387,7 @@ class DigilentDigitalInterface:
         try:
             # Update frequency if specified
             if frequency is not None:
-                self.set_pulse_parameters(self.pulse_width, frequency, self.idle_state)
+                self.set_pulse_parameters(self.duty_cycle, frequency, self.idle_state)
             
             print(f"Starting pulse train: {n_pulses} pulses at {self.frequency:.1f} Hz")
             # Configure for pulse train
@@ -445,7 +447,7 @@ class DigilentDigitalInterface:
         try:
             # Update frequency if specified
             if frequency is not None:
-                self.set_pulse_parameters(self.pulse_width, frequency, self.idle_state)
+                self.set_pulse_parameters(self.duty_cycle, frequency, self.idle_state)
             
             # Configure for continuous mode
             if self.dwf.FDwfDigitalOutRepeatSet(self.hdwf, c_int(0)) != 1:
@@ -512,7 +514,7 @@ class DigilentDigitalInterface:
             "connected": self.connected,
             "running": self.running,
             "channel": self.digital_channel,
-            "pulse_width_us": self.pulse_width * 1e6,
+            "duty_cycle_percent": self.duty_cycle * 100,
             "frequency_hz": self.frequency,
             "idle_state": "HIGH" if self.idle_state else "LOW",
             "pulse_count": self.pulse_count,
@@ -561,11 +563,11 @@ class DigilentDigitalInterface:
         
         self.hdwf = c_int()
     
-    # def __enter__(self):
-    #     """Context manager entry."""
-    #     if not self.connected:
-    #         self.connect()
-    #     return self
+    def __enter__(self):
+        """Context manager entry."""
+        if not self.connected:
+            self.connect()
+        return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
@@ -626,7 +628,7 @@ def test_digital_interface(channel: int = 8, n_pulses: int = 5):
         print("✅ Connected to device")
         
         # Set pulse parameters
-        interface.set_pulse_parameters(width=2e-6, frequency=1000.0)  # 2μs pulses at 1kHz
+        interface.set_pulse_parameters(duty_cycle=0.2, frequency=1000.0)  # 20% duty cycle at 1kHz
         
         # Test single pulse
         print("🔸 Testing single pulse...")

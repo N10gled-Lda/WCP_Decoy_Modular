@@ -20,6 +20,8 @@ class SimulatedLaserDriver(BaseLaserDriver):
         self.default_pulse_width_fwhm_ns = laser_info.pulse_width_fwhm_ns
         self.default_central_wavelength_nm = laser_info.central_wavelength_nm
 
+        self.rep_rate = 1000.0  # Default repetition rate in Hz
+
         # State tracking
         self._initialized = False
         self.is_on = False
@@ -43,7 +45,7 @@ class SimulatedLaserDriver(BaseLaserDriver):
             self.logger.error(f"Failed to initialize simulated laser: {e}")
             return False
 
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """Shutdown the simulated laser."""
         try:
             if self.is_continuous:
@@ -52,8 +54,10 @@ class SimulatedLaserDriver(BaseLaserDriver):
             self.is_on = False
             self._initialized = False
             self.logger.info("Simulated laser shutdown completed")
+            return True
         except Exception as e:
             self.logger.error(f"Error during shutdown: {e}")
+            return False
 
     def trigger_once(self) -> bool:
         """Send a single trigger pulse."""
@@ -73,7 +77,7 @@ class SimulatedLaserDriver(BaseLaserDriver):
             self.logger.error(f"Failed to trigger single pulse: {e}")
             return False
 
-    def send_frame(self, n_triggers: int, rep_rate_hz: float) -> bool:
+    def send_frame(self, n_triggers: int, rep_rate_hz: float = None) -> bool:
         """
         Send a frame of multiple trigger pulses.
         
@@ -86,8 +90,9 @@ class SimulatedLaserDriver(BaseLaserDriver):
             return False
         
         try:
-            period = 1.0 / rep_rate_hz
-            
+            self.rep_rate = rep_rate_hz if rep_rate_hz is not None else self.rep_rate
+            period = 1.0 / self.rep_rate
+
             for i in range(n_triggers):
                 pulse = self._generate_single_pulse()
                 self.pulses_queue.put(pulse)
@@ -98,14 +103,14 @@ class SimulatedLaserDriver(BaseLaserDriver):
                     time.sleep(period)
             
             self.last_trigger_time = time.time()
-            self.logger.info(f"Sent frame with {n_triggers} pulses at {rep_rate_hz} Hz")
+            self.logger.info(f"Sent frame with {n_triggers} pulses at {self.rep_rate} Hz")
             return True
             
         except Exception as e:
             self.logger.error(f"Failed to send frame: {e}")
             return False
 
-    def start_continuous(self, rep_rate_hz: float) -> bool:
+    def start_continuous(self, rep_rate_hz: float = None) -> bool:
         """
         Start continuous trigger pulse generation.
         
@@ -122,14 +127,15 @@ class SimulatedLaserDriver(BaseLaserDriver):
         
         try:
             self.is_continuous = True
+            self.rep_rate = rep_rate_hz if rep_rate_hz is not None else self.rep_rate
             self.continuous_thread = threading.Thread(
                 target=self._continuous_loop, 
-                args=(rep_rate_hz,), 
+                args=(self.rep_rate,), 
                 daemon=True
             )
             self.continuous_thread.start()
             
-            self.logger.info(f"Started continuous mode at {rep_rate_hz} Hz")
+            self.logger.info(f"Started continuous mode at {self.rep_rate} Hz")
             return True
             
         except Exception as e:
@@ -178,12 +184,16 @@ class SimulatedLaserDriver(BaseLaserDriver):
         
         while self.is_continuous and self.is_on:
             try:
+                self.last_trigger_time = time.time()
                 pulse = self._generate_single_pulse()
                 self.pulses_queue.put(pulse)
                 self.pulse_count += 1
-                self.last_trigger_time = time.time()
+                timestamp = time.time()
+                if timestamp - self.last_trigger_time < period:
+                    time.sleep(period - (timestamp - self.last_trigger_time))
+                elif timestamp - self.last_trigger_time > period:
+                    self.logger.warning("Continuous loop is running too fast. Generating slow for the period time")
                 
-                time.sleep(period)
                 
             except Exception as e:
                 self.logger.error(f"Error in continuous loop: {e}")

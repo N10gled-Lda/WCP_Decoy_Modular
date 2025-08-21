@@ -251,7 +251,7 @@ class DigilentInterface:
                 self.on_error(str(e))
             return False
 
-    def start_continuous(self, frequency: float) -> bool:
+    def start_continuous(self, frequency: float = None) -> bool:
         """
         Start continuous laser pulsing.
         
@@ -273,6 +273,9 @@ class DigilentInterface:
             self.repetition_rate = frequency
             channel = c_int(self.trigger_channel)
             
+            if frequency is None:
+                frequency = self.repetition_rate
+
             # Set to pulse mode
             self.dwf.FDwfAnalogOutFunctionSet(self.hdwf, channel, funcPulse)
             
@@ -323,7 +326,7 @@ class DigilentInterface:
         except Exception as e:
             self.logger.error(f"Error stopping continuous mode: {e}")
 
-    def fire_burst(self, pulse_count: int, frequency: float) -> bool:
+    def fire_burst(self, pulse_count: int, frequency: float = None) -> bool:
         """
         Fire a burst of pulses.
         
@@ -341,6 +344,9 @@ class DigilentInterface:
         try:
             channel = c_int(self.trigger_channel)
             
+            if frequency is None:
+                frequency = self.repetition_rate
+
             # Set to pulse mode
             self.dwf.FDwfAnalogOutFunctionSet(self.hdwf, channel, funcPulse)
             

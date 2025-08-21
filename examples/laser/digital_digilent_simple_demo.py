@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 # Add the src directory to the path
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
 from src.alice.laser.hardware_laser.digilent_digital_interface import (
@@ -61,22 +61,22 @@ def test_trigger_modes():
         
         # Configure pulse parameters
         interface.set_pulse_parameters(
-            width=0.5e-6,      # 1 microsecond
-            frequency=1000000.0, # 1 kHz
+            duty_cycle=0.1,    # 10% duty cycle
+            frequency=1000000.0, # 1 MHz = 1 us period
             idle_state=False  # Idle low
         )
         # Print new configuration
         print(f"📊 Pulse configuration:"
-                f"\n   • Pulse width: {interface.pulse_width:.7f} μs"
+                f"\n   • Duty cycle: {interface.duty_cycle*100:.1f}%"
                 f"\n   • Frequency: {interface.frequency:.1f} Hz"
                 f"\n   • Idle state: {'HIGH' if interface.idle_state else 'LOW'}")
         
-        # # Test 1: SINGLE mode
-        # print(f"\n🔸 Testing {DigitalTriggerMode.SINGLE.value} mode...")
+        # Test 1: SINGLE mode
+        print(f"\n🔸 Testing {DigitalTriggerMode.SINGLE.value} mode...")
+        success = interface.trigger_laser(mode="single")
+        print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
+        # time.sleep(0.05)
         # success = interface.trigger_laser(mode="single")
-        # print(f"   Result: {'✅ Success' if success else '❌ Failed'}")
-        # # time.sleep(0.05)
-        # # success = interface.trigger_laser(mode="single")
         
         # Test 2: TRAIN mode
         print(f"\n🔸 Testing {DigitalTriggerMode.TRAIN.value} mode (5 pulses at 2 kHz)...")
@@ -104,7 +104,7 @@ def test_trigger_modes():
         print(f"   • Pulse count: {status['pulse_count']}")
         print(f"   • Error count: {status['error_count']}")
         print(f"   • Channel: {status['channel']}")
-        print(f"   • Pulse width: {status['pulse_width_us']:.1f} μs")
+        print(f"   • Duty cycle: {status['duty_cycle_percent']:.1f}%")
         print(f"   • Frequency: {status['frequency_hz']:.1f} Hz")
         
         return True
