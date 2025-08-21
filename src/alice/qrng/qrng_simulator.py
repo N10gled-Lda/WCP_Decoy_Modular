@@ -66,6 +66,10 @@ class QRNGSimulator:
         """Get the current operation mode of the QRNG."""
         return self._mode
 
+    def get_rng(self) -> np.random.Generator:
+        """Get the underlying random number generator. Helps to confirm the state (and if is initialized)."""
+        return self._rng
+
     def get_random_bit(self, mode: OperationMode=None, size: int=1) -> Union[int, list[int]]:
         """Returns a random bit."""
         if mode is None:

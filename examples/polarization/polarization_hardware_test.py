@@ -3,7 +3,7 @@ import sys
 import os
 
 # Add the project root to Python path
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
 import logging
@@ -88,49 +88,54 @@ def test_polarization_hardware(com_port: str = "COM4"):
         logger.info("\n5. Testing new STM32 commands directly:")
         try:
             hardware_driver = controller.driver
-            if hasattr(hardware_driver, 'stm') and hardware_driver.stm:
-                stm = hardware_driver.stm
-                
-                # Test polarization device setting
-                logger.info("  Testing polarization device setting...")
-                success = stm.send_cmd_polarization_device(device=1)
-                logger.info(f"    Set device to Linear Polarizer: {'✅ Success' if success else '❌ Failed'}")
+            if hasattr(hardware_driver, 'set_polarization_device'):
+                logger.info("  Testing polarization device control...")
+                success = hardware_driver.set_polarization_device(device=1)
+                logger.info(f"    Set to Linear Polarizer: {'✅ Success' if success else '❌ Failed'}")
                 time.sleep(0.5)
                 
-                success = stm.send_cmd_polarization_device(device=2)
-                logger.info(f"    Set device to Half Wave Plate: {'✅ Success' if success else '❌ Failed'}")
+                success = hardware_driver.set_polarization_device(device=2) 
+                logger.info(f"    Set to Half Wave Plate: {'✅ Success' if success else '❌ Failed'}")
                 time.sleep(0.5)
-                
-                # Test direct angle setting
-                logger.info("  Testing direct angle setting...")
-                success = stm.send_cmd_set_angle(45)
-                logger.info(f"    Set angle to 45°: {'✅ Success' if success else '❌ Failed'}")
-                time.sleep(0.5)
-                
-                success = stm.send_cmd_set_angle(90, is_offset=True)
-                logger.info(f"    Set angle with offset to 90°: {'✅ Success' if success else '❌ Failed'}")
-                time.sleep(0.5)
-                
-                # Test frequency settings
-                logger.info("  Testing frequency settings...")
-                success = stm.send_cmd_set_frequency(1000, is_stepper=True)
-                logger.info(f"    Set stepper frequency to 1000 Hz: {'✅ Success' if success else '❌ Failed'}")
-                time.sleep(0.5)
-                
-                success = stm.send_cmd_set_frequency(2000)
-                logger.info(f"    Set operation period to 2000 ms: {'✅ Success' if success else '❌ Failed'}")
-                time.sleep(0.5)
-                
-                # Test polarization numbers
-                logger.info("  Testing polarization numbers...")
-                success = stm.send_cmd_polarization_numbers([0, 1, 2, 3])
-                logger.info(f"    Send polarization numbers [0,1,2,3]: {'✅ Success' if success else '❌ Failed'}")
-                time.sleep(0.5)
-                
-                logger.info("  ✅ All new STM32 commands tested")
             else:
-                logger.warning("  ⚠️ STM32 interface not available for direct command testing")
+                logger.warning("  No set_polarization_device method available in hardware driver")
+            
+            if hasattr(hardware_driver, 'set_angle_direct'):
+                logger.info("  Testing direct angle control...")
+                success = hardware_driver.set_angle_direct(30.0)
+                logger.info(f"    Set angle to 30°: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
                 
+                success = hardware_driver.set_angle_direct(60.0, use_offset=True)
+                logger.info(f"    Set angle with offset to 60°: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+            else:
+                logger.warning("  No set_angle_direct method available in hardware driver")
+            
+            if hasattr(hardware_driver, 'set_stepper_frequency'):
+                logger.info("  Testing stepper frequency control...")
+                success = hardware_driver.set_stepper_frequency(800.0)
+                logger.info(f"    Set stepper frequency to 800 Hz: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+            else:
+                logger.warning("  No set_stepper_frequency method available in hardware driver")
+            
+            if hasattr(hardware_driver, 'set_operation_period'):
+                logger.info("  Testing operation period control...")
+                success = hardware_driver.set_operation_period(1000)
+                logger.info(f"    Set operation period to 1000 ms: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+            else:
+                logger.warning("  No set_operation_period method available in hardware driver")
+
+            if hasattr(hardware_driver, 'set_polarization_numbers'):
+                logger.info("  Testing sending polarization numbers...")
+                success = hardware_driver.set_polarization_numbers([0, 1, 2, 3])
+                logger.info(f"    Sent polarization numbers [0,1,2,3]: {'✅ Success' if success else '❌ Failed'}")
+                time.sleep(0.5)
+                
+            logger.info("  ✅ New STM32 command testing completed")
+  
         except Exception as e:
             logger.error(f"  ❌ STM32 command testing failed: {e}")
         
@@ -244,10 +249,10 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Simple Polarization Hardware Test")
-    parser.add_argument("--com-port", type=str, default="COM4", help="COM port (default: COM4)")
-    parser.add_argument("--interactive", action="store_true", help="Run interactive test")
-    parser.add_argument("--list-ports", action="store_true", help="List available COM ports")
-    
+    parser.add_argument("--com-port", "--cp", type=str, default="COM4", help="COM port (default: COM4)")
+    parser.add_argument("--interactive", "--i", action="store_true", help="Run interactive test")
+    parser.add_argument("--list-ports", "--lp", action="store_true", help="List available COM ports")
+
     args = parser.parse_args()
     
     if args.list_ports:

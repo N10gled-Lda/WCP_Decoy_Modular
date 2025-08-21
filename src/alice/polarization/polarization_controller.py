@@ -277,6 +277,12 @@ class PolarizationController:
             
             self._initialized = True
             self.logger.info("Polarization controller initialized successfully")
+
+            # Initialize QRNG if not already done
+            if self.qrng.get_rng() is None:
+                self.qrng.set_random_seed()
+                self.logger.warning("QRNG was not initialized: setting random seed")
+            
             return True
             
         except Exception as e:

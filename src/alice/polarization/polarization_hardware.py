@@ -6,6 +6,7 @@ from typing import Any, List, Optional
 from .hardware_pol.stm32_interface import STM32Interface
 from .polarization_base import BasePolarizationDriver, PolarizationState
 
+TIMEOUT_CHECK_AVAILABILITY = 5  # seconds
 
 class PolarizationHardware(BasePolarizationDriver):
     """
@@ -89,6 +90,27 @@ class PolarizationHardware(BasePolarizationDriver):
             except Exception as e:
                 self.logger.error(f"Error during shutdown: {e}")
 
+    def _check_availability(self, timeout: float = TIMEOUT_CHECK_AVAILABILITY) -> None:
+        """
+        Check if STM32 interface is available and wait if necessary.
+        
+        Args:
+            timeout: Maximum time to wait for availability in seconds
+            
+        Raises:
+            TimeoutError: If interface doesn't become available within timeout
+        """
+        if not self.available:
+            self.logger.warning("STM32 interface not available. Waiting for availability...")
+            start_time = time.time()
+            while not self.stm.available:
+                if time.time() - start_time > timeout:
+                    self.logger.error(f"STM32 interface did not become available within {timeout} seconds")
+                    raise TimeoutError(f"STM32 interface not available within the timeout period of {timeout} seconds")
+                time.sleep(0.0001)
+            # Update our availability status
+            self.available = True
+
     def set_polarization_angle(self, angle_degrees: float) -> None:
         """
         Set the polarization angle in degrees.
@@ -108,15 +130,10 @@ class PolarizationHardware(BasePolarizationDriver):
         try:
             if self.stm is None:
                 raise RuntimeError("STM32 interface not initialized.")
-            # Check and wait if available
-            if not self.available:
-                self.logger.warning("STM32 interface not available. Waiting for availability...")
-                start_time = time.time()
-                while not self.stm.available:
-                    if time.time() - start_time > 5:
-                        self.logger.error("STM32 interface did not become available within 5 seconds")
-                        raise TimeoutError("STM32 interface not available within the timeout period")
-                    time.sleep(0.01)
+            
+            # Check availability using our new method
+            self._check_availability()
+            
             # Send the polarization number to the STM32
             self.logger.debug(f"Sending polarization number {polarization_number} for normalized angle {normalized_angle}° and angle {angle_degrees}°")
             self.success_send_pol = self.stm.send_cmd_polarization_numbers([polarization_number])
@@ -182,6 +199,9 @@ class PolarizationHardware(BasePolarizationDriver):
             return False
             
         try:
+            # Check availability using our new method
+            self._check_availability()
+            
             success = self.stm.send_cmd_polarization_device(device)
             if success:
                 device_name = "Linear Polarizer" if device == 1 else "Half Wave Plate"
@@ -215,6 +235,9 @@ class PolarizationHardware(BasePolarizationDriver):
             return False
             
         try:
+            # Check availability using our new method
+            self._check_availability()
+            
             success = self.stm.send_cmd_set_angle(angle, is_offset=is_offset)
             if success:
                 angle_type = "offset" if is_offset else "absolute"
@@ -251,6 +274,9 @@ class PolarizationHardware(BasePolarizationDriver):
             return False
             
         try:
+            # Check availability using our new method
+            self._check_availability()
+            
             success = self.stm.send_cmd_set_frequency(frequency, is_stepper=True)
             if success:
                 self.logger.info(f"Set stepper motor frequency to {frequency} Hz")
@@ -282,6 +308,9 @@ class PolarizationHardware(BasePolarizationDriver):
             return False
             
         try:
+            # Check availability using our new method
+            self._check_availability()
+            
             success = self.stm.send_cmd_set_frequency(period, is_stepper=False)
             if success:
                 self.logger.info(f"Set operation period to {period} ms")
@@ -404,15 +433,9 @@ class PolarizationHardware(BasePolarizationDriver):
         polarization_number = self._map_to_polarization_number(basis, bit)
         
         try:
-            # Check and wait if available
-            if not self.available:
-                self.logger.warning("STM32 interface not available. Waiting for availability...")
-                start_time = time.time()
-                while not self.stm.available:
-                    if time.time() - start_time > 5:
-                        self.logger.error("STM32 interface did not become available within 5 seconds")
-                        raise TimeoutError("STM32 interface not available within the timeout period")
-                    time.sleep(0.1)
+            # Check availability using our new method
+            self._check_availability()
+            
             success = self.stm.send_cmd_polarization_numbers([polarization_number])
             if not success:
                 raise RuntimeError(f"Failed to send polarization number {polarization_number}")
@@ -457,15 +480,9 @@ class PolarizationHardware(BasePolarizationDriver):
                                for b, bit in zip(processed_bases, bits)]
         
         try:
-            # Check and wait if available
-            if not self.available:
-                self.logger.warning("STM32 interface not available. Waiting for availability...")
-                start_time = time.time()
-                while not self.stm.available:
-                    if time.time() - start_time > 5:
-                        self.logger.error("STM32 interface did not become available within 5 seconds")
-                        raise TimeoutError("STM32 interface not available within the timeout period")
-                    time.sleep(0.1)            
+            # Check availability using our new method
+            self._check_availability()
+            
             success = self.stm.send_cmd_polarization_numbers(polarization_numbers)
             if not success:
                 raise RuntimeError(f"Failed to send polarization numbers {polarization_numbers}")
@@ -475,8 +492,41 @@ class PolarizationHardware(BasePolarizationDriver):
             self.logger.error(f"Failed to encode bit sequence: {e}")
             raise
 
+    def set_polarization_numbers(self, numbers: List[int]) -> bool:
+        """
+        Set multiple polarization numbers directly.
+        
+        Args:
+            numbers: List of polarization numbers (0-3)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.connected:
+            self.logger.error("Hardware not connected. Call initialize() first.")
+            return False
+            
+        if not all(0 <= n <= 3 for n in numbers):
+            self.logger.error("Polarization numbers must be between 0 and 3")
+            return False
+            
+        try:
+            # Check availability using our new method
+            self._check_availability()
+            
+            success = self.stm.send_cmd_polarization_numbers(numbers)
+            if success:
+                self.logger.info(f"Set polarization numbers: {numbers}")
+                return True
+            else:
+                self.logger.error(f"Failed to set polarization numbers: {numbers}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Failed to set polarization numbers: {e}")
+            return False
 
-    # Aditional commands
+    # Additional commands
     #...
 
     @staticmethod
@@ -487,6 +537,12 @@ class PolarizationHardware(BasePolarizationDriver):
 
     def is_connected(self) -> bool:
         """Check if hardware is connected."""
+        if not self.connected:
+            self.logger.warning("Hardware is not connected")
+        if not self.stm.connected:
+            self.logger.warning("STM32 interface is not connected")
+        if self.stm is None:
+            self.logger.warning("STM32 interface is not initialized")
         return self.connected and self.stm is not None and self.stm.connected
 
     def set_com_port(self, com_port: str) -> None:

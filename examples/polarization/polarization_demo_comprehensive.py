@@ -3,7 +3,7 @@ import sys
 import os
 
 # Add the project root to Python path
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
 import logging
@@ -55,8 +55,11 @@ class PolarizationControllerDemo:
             ) as controller:
                 
                 if not controller.is_initialized():
-                    self.logger.error("Failed to initialize simulator controller")
-                    return False
+                    self.logger.warning("Trying again to initialize simulator controller...")
+                    controller.initialize()
+                    if not controller.is_initialized():
+                        self.logger.error("Failed to initialize simulator controller")
+                        return False
                 
                 self.logger.info("✅ Simulator controller initialized")
                 
@@ -85,9 +88,10 @@ class PolarizationControllerDemo:
                 
                 # Add test pulses
                 test_pulses = [
-                    Pulse(timestamp=1.0, intensity=1000.0, wavelength=1550.0, photons=1000),
-                    Pulse(timestamp=2.0, intensity=1200.0, wavelength=1550.0, photons=1200),
-                    Pulse(timestamp=3.0, intensity=800.0, wavelength=1550.0, photons=800),
+                    Pulse(polarization=PolarizationState.H, photons=1000),
+                    Pulse(polarization=PolarizationState.V, photons=1100),
+                    Pulse(polarization=PolarizationState.D, photons=800),
+                    Pulse(polarization=PolarizationState.A, photons=900),
                 ]
                 
                 for i, pulse in enumerate(test_pulses):
@@ -104,7 +108,10 @@ class PolarizationControllerDemo:
                 
                 # Get current state
                 state_info = controller.get_current_state()
+                
                 self.logger.info(f"  Current state: {state_info['state']} at {state_info['angle_degrees']}°")
+                self.logger.info(f"  Bit value: {state_info['bit_value']}, Basis: {state_info['basis']}")
+                self.logger.info(f"  Jones vector: {state_info['jones_vector']}")
                 
                 self.logger.info("✅ Simulator controller test completed successfully")
                 return True
@@ -122,8 +129,11 @@ class PolarizationControllerDemo:
             with create_polarization_controller_with_hardware(com_port=com_port) as controller:
                 
                 if not controller.is_initialized():
-                    self.logger.error("Failed to initialize hardware controller")
-                    return False
+                    self.logger.warning("Trying again to initialize hardware controller...")
+                    controller.initialize()
+                    if not controller.is_initialized():
+                        self.logger.error("Failed to initialize hardware controller")
+                        return False
                 
                 self.logger.info("✅ Hardware controller initialized")
                 
@@ -169,8 +179,8 @@ class PolarizationControllerDemo:
                     except Exception as e:
                         self.logger.error(f"    ❌ QRNG test {i+1} failed: {e}")
                 
-                # Test 4: New STM32 commands through controller
-                self.logger.info("\n🔧 Testing new STM32 commands through controller:")
+                # Test 4: STM32 commands through controller
+                self.logger.info("\n🔧 Testing other STM32 commands through controller:")
                 try:
                     hardware_driver = controller.driver
                     if hasattr(hardware_driver, 'set_polarization_device'):
@@ -182,6 +192,8 @@ class PolarizationControllerDemo:
                         success = hardware_driver.set_polarization_device(device=2) 
                         self.logger.info(f"    Set to Half Wave Plate: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
+                    else:
+                        self.logger.warning("  No set_polarization_device method available in hardware driver")
                     
                     if hasattr(hardware_driver, 'set_angle_direct'):
                         self.logger.info("  Testing direct angle control...")
@@ -192,18 +204,24 @@ class PolarizationControllerDemo:
                         success = hardware_driver.set_angle_direct(60.0, use_offset=True)
                         self.logger.info(f"    Set angle with offset to 60°: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
+                    else:
+                        self.logger.warning("  No set_angle_direct method available in hardware driver")
                     
                     if hasattr(hardware_driver, 'set_stepper_frequency'):
                         self.logger.info("  Testing stepper frequency control...")
                         success = hardware_driver.set_stepper_frequency(800.0)
                         self.logger.info(f"    Set stepper frequency to 800 Hz: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
+                    else:
+                        self.logger.warning("  No set_stepper_frequency method available in hardware driver")
                     
                     if hasattr(hardware_driver, 'set_operation_period'):
                         self.logger.info("  Testing operation period control...")
-                        success = hardware_driver.set_operation_period(1.5)
-                        self.logger.info(f"    Set operation period to 1.5 s: {'✅ Success' if success else '❌ Failed'}")
+                        success = hardware_driver.set_operation_period(1000)
+                        self.logger.info(f"    Set operation period to 1000 ms: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
+                    else:
+                        self.logger.warning("  No set_operation_period method available in hardware driver")
                         
                     self.logger.info("  ✅ New STM32 command testing completed")
                     
@@ -232,29 +250,26 @@ class PolarizationControllerDemo:
             self.logger.warning("pyserial not available, cannot list COM ports")
             return []
     
-    def run_complete_demo(self, test_hardware: bool = False, com_port: str = None) -> bool:
+    def run_complete_demo(self, com_port: str = None) -> bool:
         """Run the complete polarization controller demo."""
         self.logger.info("🚀 Starting Polarization Controller Comprehensive Demo")
         
         # Always test simulator
         simulator_success = self.test_simulator_controller()
         
-        hardware_success = True  # Default to success if not testing
+        if com_port is None:
+            # Try to find available COM ports
+            available_ports = self.list_available_com_ports()
+            if available_ports:
+                self.logger.info(f"Available COM ports: {available_ports}")
+                com_port = available_ports[0]  # Use first available
+                self.logger.info(f"Using COM port: {com_port}")
+            else:
+                self.logger.error("No COM ports available for hardware testing")
+                return simulator_success
         
-        if test_hardware:
-            if com_port is None:
-                # Try to find available COM ports
-                available_ports = self.list_available_com_ports()
-                if available_ports:
-                    self.logger.info(f"Available COM ports: {available_ports}")
-                    com_port = available_ports[0]  # Use first available
-                    self.logger.info(f"Using COM port: {com_port}")
-                else:
-                    self.logger.error("No COM ports available for hardware testing")
-                    return simulator_success
-            
-            # Test hardware controller
-            hardware_success = self.test_hardware_controller(com_port)
+        # Test hardware controller
+        hardware_success = self.test_hardware_controller(com_port)
         
         # Summary
         self.logger.info("\n" + "="*60)
@@ -263,12 +278,8 @@ class PolarizationControllerDemo:
         
         results = [
             ("Simulator Controller", simulator_success),
+            ("Hardware Controller", hardware_success)
         ]
-        
-        if test_hardware:
-            results.extend([
-                ("Hardware Controller", hardware_success)
-            ])
         
         for test_name, success in results:
             status = "✅ PASS" if success else "❌ FAIL"
@@ -289,24 +300,37 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Polarization Controller Demo")
-    parser.add_argument("--hardware", action="store_true", help="Test hardware controller")
-    parser.add_argument("--com-port", type=str, help="COM port for hardware testing (e.g., COM4)")
-    parser.add_argument("--simulator-only", action="store_true", help="Test simulator only")
-    
+    parser.add_argument("--simulator-only", "--s", action="store_true", help="Test simulator only")
+    parser.add_argument("--hardware-only", "--h", action="store_true", help="Test hardware only")
+    parser.add_argument("--com-port", "--cp", type=str, help="COM port for hardware testing (e.g., COM4)")
+    parser.add_argument("--list-com-ports", "--lcp", action="store_true", help="List available COM ports")
+
     args = parser.parse_args()
     
     print("Polarization Controller Comprehensive Demo")
     print("=" * 50)
     
+    if args.list_com_ports:
+        available_ports = PolarizationControllerDemo().list_available_com_ports()
+        if available_ports:
+            print("Available COM ports:")
+            for port in available_ports:
+                print(f"  - {port}")
+        else:
+            print("No COM ports available.")
+        return 0
+
     demo = PolarizationControllerDemo()
     
     if args.simulator_only:
         success = demo.test_simulator_controller()
+    elif args.hardware_only:
+        if not args.com_port:
+            print("❌ COM port must be specified for hardware testing.")
+            return 1
+        success = demo.test_hardware_controller(args.com_port)
     else:
-        success = demo.run_complete_demo(
-            test_hardware=args.hardware,
-            com_port=args.com_port
-        )
+        success = demo.run_complete_demo(com_port=args.com_port)
     
     if success:
         print("\n🎉 Demo completed successfully!")
