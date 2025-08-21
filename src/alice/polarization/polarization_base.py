@@ -99,11 +99,11 @@ class BasePolarizationDriver(ABC):
         pass
 
     @abstractmethod
-    def initialize(self) -> None:
+    def initialize(self) -> bool:
         """Initialize the polarization hardware/simulator."""
         pass
 
     @abstractmethod
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """Shutdown the polarization hardware/simulator."""
         pass

@@ -37,20 +37,20 @@ class PolarizationControllerDemo:
     
     def test_simulator_controller(self) -> bool:
         """Test polarization controller with simulator."""
-        self.logger.info("=== Testing Polarization Controller with Simulator ===")
+        self.logger.info("\n\n========= Testing Polarization Controller with Simulator =========")
         
         try:
             # Create input/output queues
-            input_queue = Queue()
-            output_queue = Queue()
+            pulses_queue = Queue()
+            polarized_pulses_queue = Queue()
             
             # Create laser info
             laser_info = LaserInfo(wavelength=1550.0, power=1.0, pulse_width=1e-9)
             
             # Create controller with simulator
             with create_polarization_controller_with_simulator(
-                input_queue=input_queue,
-                output_queue=output_queue,
+                pulses_queue=pulses_queue,
+                polarized_pulses_queue=polarized_pulses_queue,
                 laser_info=laser_info
             ) as controller:
                 
@@ -66,10 +66,20 @@ class PolarizationControllerDemo:
                 # Test 1: Random polarization generation
                 self.logger.info("\n🎲 Testing random polarization generation:")
                 for i in range(3):
+                    pulses_queue.put(Pulse(polarization=10, photons=1000))
                     output = controller.set_polarization_from_qrng()
+                    controller.apply_polarization_to_queue()
                     self.logger.info(f"  {i+1}. {output.basis} basis, bit {output.bit} → "
                                    f"{output.polarization_state} ({output.angle_degrees}°)")
-                
+
+                status = controller.get_queue_info()
+                self.logger.info(f"  Queue status: {status}")
+
+                self.logger.info("\n📦 Polarized pulses generated:")
+                while not polarized_pulses_queue.empty():
+                    pulse = polarized_pulses_queue.get()
+                    self.logger.info(f"  {pulse.polarization}° ({pulse.photons} photons)")
+
                 # Test 2: Manual polarization setting
                 self.logger.info("\n🔧 Testing manual polarization setting:")
                 test_cases = [
@@ -80,9 +90,16 @@ class PolarizationControllerDemo:
                 ]
                 
                 for basis, bit, description in test_cases:
+                    pulses_queue.put(Pulse(polarization=10, photons=1000))
                     output = controller.set_polarization_manually(basis, bit)
+                    controller.apply_polarization_to_queue()
                     self.logger.info(f"  {description}: {output.polarization_state} ({output.angle_degrees}°)")
                 
+                logger.info("\n📦 Polarized pulses after manual setting:")
+                while not polarized_pulses_queue.empty():
+                    pulse = polarized_pulses_queue.get()
+                    self.logger.info(f"  {pulse.polarization}° ({pulse.photons} photons)")
+
                 # Test 3: Queue processing
                 self.logger.info("\n📦 Testing queue processing:")
                 
@@ -95,7 +112,7 @@ class PolarizationControllerDemo:
                 ]
                 
                 for i, pulse in enumerate(test_pulses):
-                    input_queue.put(pulse)
+                    pulses_queue.put(pulse)
                     self.logger.info(f"  Added pulse {i+1}: {pulse.photons} photons")
                 
                 # Set polarization and process
@@ -110,7 +127,7 @@ class PolarizationControllerDemo:
                 state_info = controller.get_current_state()
                 
                 self.logger.info(f"  Current state: {state_info['state']} at {state_info['angle_degrees']}°")
-                self.logger.info(f"  Bit value: {state_info['bit_value']}, Basis: {state_info['basis']}")
+                self.logger.info(f"  Bit value: {state_info['bit']}, Basis: {state_info['basis']}")
                 self.logger.info(f"  Jones vector: {state_info['jones_vector']}")
                 
                 self.logger.info("✅ Simulator controller test completed successfully")
@@ -122,7 +139,7 @@ class PolarizationControllerDemo:
     
     def test_hardware_controller(self, com_port: str) -> bool:
         """Test polarization controller with hardware."""
-        self.logger.info(f"=== Testing Polarization Controller with Hardware (COM{com_port}) ===")
+        self.logger.info(f"\n\n========= Testing Polarization Controller with Hardware ({com_port}) =========")
         
         try:
             # Create controller with hardware

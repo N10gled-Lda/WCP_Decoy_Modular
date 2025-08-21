@@ -85,7 +85,7 @@ class PolarizationSimulator(BasePolarizationDriver):
             # phase=pulse.phase,
             # wavelength=pulse.wavelength,
             photons=pulse.photons,
-            polarization_angle=self.current_angle,
+            polarization=self.current_angle, # TODO: ADD STATISTICS
             # basis=self.current_state.basis,
             # bit_value=self.current_state.bit_value
         )
@@ -225,17 +225,19 @@ class PolarizationSimulator(BasePolarizationDriver):
         
         return rotation_time
 
-    def initialize(self) -> None:
+    def initialize(self) -> bool:
         """Initialize the polarization simulator."""
         self._is_on = True
         self.current_angle = 0.0
         self.current_state = PolarizationState.H
         self.logger.info("Polarization simulator initialized to horizontal (0°)")
+        return True
 
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """Shutdown the polarization simulator."""
         self._is_on = False
         self.logger.info("Polarization simulator shutdown")
+        return True
 
     def reset(self) -> None:
         """Reset polarization to default state and clear queues."""
