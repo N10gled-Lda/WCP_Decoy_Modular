@@ -1,8 +1,6 @@
-"""
-VOA Controller Enhancement Summary
-=================================
+# VOA Controller Enhancement Summary
 
-This document summarizes the enhanced VOA (Variable Optical Attenuator) controller implementation 
+This document summarizes the enhanced VOA (Variable Optical Attenuator) controller implementation
 with QRNG integration and probability-based state selection for quantum key distribution systems.
 
 ## Key Features
@@ -10,25 +8,29 @@ with QRNG integration and probability-based state selection for quantum key dist
 ### 1. Configuration Classes
 
 #### IntensityConfig
+
 - Configures the three decoy state intensities:
-  * `mu_signal`: Signal state intensity (default: 0.5)
-  * `mu_weak`: Weak decoy state intensity (default: 0.1)  
-  * `mu_vacuum`: Vacuum state intensity (default: 0.0)
+  - `mu_signal`: Signal state intensity (default: 0.5)
+  - `mu_weak`: Weak decoy state intensity (default: 0.1)  
+  - `mu_vacuum`: Vacuum state intensity (default: 0.0)
 
 #### ProbabilityConfig
+
 - Configures the selection probabilities for each state:
-  * `p_signal`: Signal state probability (default: 0.7)
-  * `p_weak`: Weak decoy state probability (default: 0.2)
-  * `p_vacuum`: Vacuum state probability (default: 0.1)
+  - `p_signal`: Signal state probability (default: 0.7)
+  - `p_weak`: Weak decoy state probability (default: 0.2)
+  - `p_vacuum`: Vacuum state probability (default: 0.1)
 - Validates that probabilities sum to 1.0
 
 #### DecoyConfig
+
 - Combined configuration containing both intensity and probability configs
 - Automatically creates default probability config if not provided
 
 ### 2. Enhanced VOAController Class
 
 #### Initialization Options
+
 The controller supports multiple initialization methods:
 
 ```python
@@ -62,12 +64,12 @@ voa = VOAController(
    - Applies inverse transform sampling based on configured probabilities
    - Provides accurate statistical distribution matching target probabilities
 
-2. **Uniform Selection**: `select_random_state()` 
+2. **Uniform Selection**: `select_random_state()`
    - Uses 2 QRNG bits with fixed mapping:
-     * 00 → SIGNAL
-     * 01 → SIGNAL  
-     * 10 → WEAK
-     * 11 → VACUUM
+     - 00 → SIGNAL
+     - 01 → SIGNAL  
+     - 10 → WEAK
+     - 11 → VACUUM
    - Provides uniform distribution (not probability-weighted)
 
 #### Pulse Generation Methods
@@ -87,21 +89,25 @@ voa = VOAController(
 #### Attenuation Calculation
 
 The controller calculates attenuation using the formula:
-```
+
+```latex
 A_dB = 10 * log10(N_pulse / μ)
 ```
 
 Where:
+
 - `N_pulse`: Initial number of photons per pulse
 - `μ`: Target mean photon number for the selected state
 
 Special handling:
+
 - Vacuum state (μ=0): Uses maximum attenuation (60 dB)
 - Bounds checking: 0 ≤ A_dB ≤ 60 dB
 
 ### 3. VOAOutput Data Structure
 
 The output contains:
+
 - `pulse_type`: Selected DecoyState (SIGNAL, WEAK, or VACUUM)
 - `attenuation_db`: Calculated attenuation in dB
 - `target_intensity`: Target mean photon number (μ)
@@ -115,6 +121,7 @@ The output contains:
 ## Usage Examples
 
 ### Basic Setup with Probabilities
+
 ```python
 from src.alice.voa.voa_controller import (
     VOAController, IntensityConfig, ProbabilityConfig
@@ -138,6 +145,7 @@ print(f"State: {output.pulse_type}, μ: {output.target_intensity}, A: {output.at
 ```
 
 ### Custom Probability Distributions
+
 ```python
 # High signal probability (for testing/debugging)
 high_signal = ProbabilityConfig(p_signal=0.9, p_weak=0.08, p_vacuum=0.02)
@@ -150,6 +158,7 @@ qkd_optimized = ProbabilityConfig(p_signal=0.5, p_weak=0.3, p_vacuum=0.2)
 ```
 
 ### Statistical Analysis
+
 ```python
 # Generate many samples and analyze distribution
 counts = {DecoyState.SIGNAL: 0, DecoyState.WEAK: 0, DecoyState.VACUUM: 0}

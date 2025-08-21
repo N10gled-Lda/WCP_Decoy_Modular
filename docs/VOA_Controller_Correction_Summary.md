@@ -1,6 +1,4 @@
-"""
-Corrected VOA Controller Implementation Summary
-==============================================
+# Corrected VOA Controller Implementation Summary
 
 You were absolutely right to point out that there was already a `DecoyInfo` class in `data_structures.py`!
 I unnecessarily created new dataclasses when I should have used the existing infrastructure.
@@ -8,11 +6,13 @@ I unnecessarily created new dataclasses when I should have used the existing inf
 ## What Was Fixed
 
 ### ❌ Previous Implementation (Redundant)
+
 - Created new `IntensityConfig`, `ProbabilityConfig`, and `DecoyConfig` classes
 - Duplicated functionality that already existed in `DecoyInfo`
 - Added unnecessary complexity and inconsistency
 
 ### ✅ Corrected Implementation (Using Existing DecoyInfo)
+
 - Uses the existing `DecoyInfo` class from `data_structures.py`
 - Created `DecoyInfoExtended` class that extends `DecoyInfo` with helper methods
 - Maintains consistency with the existing codebase architecture
@@ -20,6 +20,7 @@ I unnecessarily created new dataclasses when I should have used the existing inf
 ## Key Changes Made
 
 ### 1. Removed Redundant Classes
+
 ```python
 # REMOVED these redundant classes:
 # - IntensityConfig
@@ -28,6 +29,7 @@ I unnecessarily created new dataclasses when I should have used the existing inf
 ```
 
 ### 2. Extended Existing DecoyInfo
+
 ```python
 class DecoyInfoExtended(DecoyInfo):
     """Extended DecoyInfo class with helper methods for state-based access."""
@@ -57,6 +59,7 @@ class DecoyInfoExtended(DecoyInfo):
 ```
 
 ### 3. Simplified VOAController
+
 ```python
 class VOAController:
     def __init__(self, 
@@ -73,24 +76,28 @@ class VOAController:
 
 ## Benefits of Using Existing DecoyInfo
 
-### 1. **Consistency**: 
-   - Uses the same data structure as the rest of the codebase
-   - No duplication of functionality
-   - Consistent validation (probabilities sum to 1.0)
+### 1. **Consistency**
 
-### 2. **Simplicity**:
-   - Single configuration object instead of multiple classes
-   - Leverages existing Pydantic validation
-   - Maintains backward compatibility
+- Uses the same data structure as the rest of the codebase
+- No duplication of functionality
+- Consistent validation (probabilities sum to 1.0)
 
-### 3. **Extensibility**:
-   - Can easily add more parameters to DecoyInfo in the future
-   - Helper methods provide convenient state-based access
-   - Preserves the original dictionary-based interface
+### 2. **Simplicity**
+
+- Single configuration object instead of multiple classes
+- Leverages existing Pydantic validation
+- Maintains backward compatibility
+
+### 3. **Extensibility**
+
+- Can easily add more parameters to DecoyInfo in the future
+- Helper methods provide convenient state-based access
+- Preserves the original dictionary-based interface
 
 ## Usage Examples
 
 ### Basic Usage with Defaults
+
 ```python
 # Uses default values from DecoyInfo
 voa = VOAController(physical=False)
@@ -99,6 +106,7 @@ voa = VOAController(physical=False)
 ```
 
 ### Custom Configuration
+
 ```python
 # Create custom DecoyInfo
 custom_decoy_info = DecoyInfoExtended(
@@ -110,6 +118,7 @@ voa = VOAController(physical=False, decoy_info=custom_decoy_info)
 ```
 
 ### Dynamic Updates
+
 ```python
 voa = VOAController(physical=False)
 
@@ -119,6 +128,7 @@ voa.update_probabilities(signal=0.6, weak=0.3, vacuum=0.1)
 ```
 
 ### Pulse Generation with Probabilities
+
 ```python
 # Probability-based selection (70% signal, 20% weak, 10% vacuum)
 output = voa.generate_pulse_with_probability_selection()
