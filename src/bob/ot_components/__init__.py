@@ -1,5 +1,31 @@
-"""Bob's components."""
-from .detectors_simulator import DetectorsSimulator
-from .optical_table_simulator import OpticalTableSimulator
+"""Bob's optical table components."""
 
-__all__ = ["DetectorsSimulator", "OpticalTableSimulator"]
+# Enhanced simulators
+from .optical_table_simulator import (
+    OpticalTableSimulator, 
+    OpticalTableConfig, 
+    MeasurementOutcome,
+    OpticalTableStatistics
+)
+from .detectors_simulator import (
+    PhotonDetectorSimulator,
+    DetectorConfig,
+    DetectorType,
+    DetectorStatistics,
+    DetectorsSimulator  # Legacy class
+)
+
+__all__ = [
+    # Optical Table
+    "OpticalTableSimulator",
+    "OpticalTableConfig", 
+    "MeasurementOutcome",
+    "OpticalTableStatistics",
+    
+    # Detectors
+    "PhotonDetectorSimulator",
+    "DetectorConfig",
+    "DetectorType", 
+    "DetectorStatistics",
+    "DetectorsSimulator",  # Legacy
+]
