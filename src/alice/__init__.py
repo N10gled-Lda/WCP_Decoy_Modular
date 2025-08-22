@@ -1,6 +1,7 @@
 """Alice's components."""
 # Core CPU
 from .aliceCPU import AliceCPU
+from .alice_cpu_general import AliceCPUGeneral, SimulationConfig
 
 # Laser components
 from .laser.laser_controller import LaserController
@@ -36,6 +37,8 @@ from .qrng.qrng_hardware import QRNGHardware
 __all__ = [
     # Core
     "AliceCPU",
+    "AliceCPUGeneral",
+    "SimulationConfig",
     
     # Laser
     "LaserController",
