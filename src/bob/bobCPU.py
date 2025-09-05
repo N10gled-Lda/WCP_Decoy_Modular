@@ -62,12 +62,12 @@ class BobConfig:
             timetagger_config=TimeTaggerConfig(
                 resolution_ps=1000,  # 1 ps resolution
                 buffer_size=100000,
-                max_count_rate_hz=10000000,  # 10 MHz
+                measurement_duration_s= 1,
                 channels={
-                    0: TTChannelConfig(enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # H detector
-                    1: TTChannelConfig(enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # V detector  
-                    2: TTChannelConfig(enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # D detector
-                    3: TTChannelConfig(enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # A detector
+                    0: TTChannelConfig(channel_id=0, enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # H detector
+                    1: TTChannelConfig(channel_id=1, enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # V detector  
+                    2: TTChannelConfig(channel_id=2, enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # D detector
+                    3: TTChannelConfig(channel_id=3, enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # A detector
                 }
             ),
             simulator_config=SimulatorConfig(

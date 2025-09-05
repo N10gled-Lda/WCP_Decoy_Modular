@@ -16,7 +16,7 @@ import os
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
-from src.utils.data_structures import Pulse, Basis, Bit
+from src.utils.data_structures import Pulse, Basis, Bit, LaserInfo
 from src.alice.qrng.qrng_simulator import QRNGSimulator, OperationMode
 from src.alice.laser.laser_controller import LaserController
 from src.alice.laser.laser_simulator import SimulatedLaserDriver
@@ -123,7 +123,8 @@ class AliceCPU:
                 digital_channel=self.config.laser_channel
             )
         else:
-            laser_driver = SimulatedLaserDriver()
+            laser_info = LaserInfo()
+            laser_driver = SimulatedLaserDriver(pulses_queue=self._pulse_queue, laser_info=laser_info)
         
         self.laser_controller = LaserController(laser_driver)
         

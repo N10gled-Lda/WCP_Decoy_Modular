@@ -20,7 +20,7 @@ from src.alice.polarization.polarization_controller import PolarizationControlle
 from src.alice.polarization.polarization_simulator import PolarizationSimulator
 from src.alice.qrng.qrng_simulator import OperationMode, QRNGSimulator
 from src.quantum_channel.free_space_channel import FreeSpaceChannel
-from src.utils.data_structures import Pulse, PolarizationState
+from src.utils.data_structures import Pulse
 from configs.hardware_config import SYSTEM_CONFIG
 
 # Set up logging
@@ -83,7 +83,7 @@ class AliceSimulator:
         
         try:
             # Turn on laser
-            self.laser.turn_on()
+            self.laser.initialize()
             
             # Start pulse sequence
             start_time = time.time()

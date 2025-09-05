@@ -2,6 +2,12 @@
 Example: Complete QKD System Integration
 Demonstrates Alice and Bob working together with enhanced simulators.
 """
+import sys
+import os
+
+# Add the project root to Python path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
 import logging
 import time
@@ -32,9 +38,11 @@ def run_simple_qkd_demo():
     
     # Configure Alice (simple hardware test version)
     alice_config = AliceConfig(
-        num_pulses=100,
+        num_pulses=5,
         pulse_period_seconds=0.1,  # 10 Hz for demo
-        use_hardware=False,  # Use simulators
+        use_hardware=True,  # Use simulators
+        com_port="COM4",
+        laser_channel=8,
         mode=AliceMode.STREAMING,
         qrng_seed=42
     )

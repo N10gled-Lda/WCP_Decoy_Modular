@@ -1,6 +1,6 @@
 """Alice's components."""
 # Core CPU
-from .aliceCPU import AliceCPU
+from .aliceCPU import AliceCPU, AliceConfig, AliceMode
 from .alice_cpu_general import AliceCPUGeneral, SimulationConfig
 
 # Laser components
@@ -39,6 +39,8 @@ __all__ = [
     "AliceCPU",
     "AliceCPUGeneral",
     "SimulationConfig",
+    "AliceConfig",
+    "AliceMode",
     
     # Laser
     "LaserController",
