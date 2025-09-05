@@ -189,6 +189,7 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             self.logger.error(f"Cannot send frame in state {self.state}")
             return False
         
+        if rep_rate_hz is None: rep_rate_hz = self.frequency
         if rep_rate_hz > self.max_frequency:
             self.logger.error(f"Frequency {rep_rate_hz} Hz exceeds maximum {self.max_frequency} Hz")
             return False
