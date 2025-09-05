@@ -72,7 +72,6 @@ class VOAController:
     
     def __init__(self, 
                  driver: Union[BaseVOADriver, VOASimulator, VOAHardwareDriver],
-                 physical: bool = False,
                  qrng_driver: Union[QRNGSimulator, QRNGHardware] = None,
                  decoy_info: Optional[DecoyInfoExtended] = None):
         """
@@ -80,12 +79,10 @@ class VOAController:
         
         Args:
             driver: The driver to use for controlling the VOA (e.g., VOASimulator or VOAHardwareDriver)
-            physical: Whether to use physical hardware or simulator (DEPRECATED)
             decoy_info: DecoyInfo configuration with intensities and probabilities
             n_pulse_initial: Initial number of photons per pulse (for attenuation calculation)
         """
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.physical = physical
         self.n_pulse_initial = 1000
         self.current_attenuation = 0.0
         self.current_state = DecoyState.SIGNAL
@@ -105,17 +102,10 @@ class VOAController:
         self.intensities_defined = True  # DecoyInfo always has default intensities
         self.probabilities_defined = True  # DecoyInfo always has default probabilities
         
-        # # Initialize VOA hardware/simulator
-        # if self.physical:
-        #     self.voa = VOAHardware()
-        #     self.qrng = QRNGHardware()
-        # else:
-        #     self.voa = VOASimulator()
-        #     self.qrng = QRNGSimulator()
+        # Initialize VOA hardware/simulator
         self.voa_driver = driver
         self.qrng_driver = qrng_driver if qrng_driver else QRNGSimulator()
         
-        # self.logger.info(f"VOA controller initialized in {'physical' if physical else 'simulation'} mode.")
         self.logger.info(f"Intensities: {self.decoy_info.intensities}")
         self.logger.info(f"Probabilities: {self.decoy_info.probabilities}")
 

@@ -25,38 +25,10 @@ class PolarizationOutput:
 
 class PolarizationController:
     """Controls polarization with QRNG-based basis and bit selection for BB84 protocol."""
-    # def __init__(self, pol_driver: Union[PolarizationSimulator, PolarizationHardware], com_port: str = None, qrng_driver: Union[QRNGSimulator, QRNGHardware] = None):
-        # """
-        # Initialize the polarization controller with a specific driver.
-        # Args:
-        #     pol_driver: The polarization driver (simulator or hardware).
-        #     com_port: The COM port for the STM32 controller (if using hardware).
-        #     qrng_driver: The QRNG driver (simulator or hardware).
-        # """
-        # self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        # self.polarization_driver = pol_driver
-        # if isinstance(self.polarization_driver, PolarizationHardware):
-        #     if com_port is None:
-        #         raise ValueError("COM port must be specified for physical polarization hardware.")
-        #     if com_port not in [port.device for port in comports()]:
-        #         raise ValueError(f"COM port {com_port} not found. Available ports: {[port.device for port in comports()]}")
-        #     self.logger.info(f"Using PolarizationHardware with COM port: {com_port}")
-
-        #     # This should not be in here, the com port should be set in the hardware interface since this controller is agnostic to the hardware implementation.
-        #     # Initialize the hardware interface STM32 with the specified COM port
-        #     self.polarization_driver.init_STM_com_port(com_port)
-
-        # elif isinstance(self.polarization_driver, PolarizationSimulator):
-        #     self.logger.warning("Using PolarizationSimulator, no COM port required.")
-        # else:
-        #     raise ValueError("Invalid polarization driver provided. Must be either PolarizationSimulator or PolarizationHardware.")
-
-        # self.qrng_driver = qrng_driver if qrng_driver else QRNGSimulator()
-        # self.logger.info(f"Polarization controller initialized with {type(self.polarization_driver).__name__} and {type(self.qrng_driver).__name__}.")
-
+    ### TODO: Eventual addition to input: BB84 efficient probabilities
     def __init__(self, 
                  driver: Union[PolarizationSimulator, PolarizationHardware],
-                 qrng_driver: Optional[Union[QRNGSimulator, QRNGHardware]] = None):
+                 qrng_driver: Optional[Union[QRNGSimulator, QRNGHardware]] = None): 
         """
         Initialize polarization controller with a specific driver.
         
@@ -76,6 +48,45 @@ class PolarizationController:
         self._initialized = False
         
         self.logger.info(f"Polarization controller initialized with {type(driver).__name__}")
+
+    def initialize(self) -> bool:
+        """Initialize the polarization controller and underlying driver."""
+        try:
+            if hasattr(self.driver, 'initialize'):
+                success = self.driver.initialize()
+                if not success:
+                    self.logger.error("Failed to initialize polarization driver")
+                    return False
+            
+            self._initialized = True
+            self.logger.info("Polarization controller initialized successfully")
+
+            # Initialize QRNG if not already done
+            if self.qrng.get_rng() is None:
+                self.qrng.set_random_seed()
+                self.logger.warning("QRNG was not initialized: setting random seed")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error initializing polarization controller: {e}")
+            return False
+
+    def shutdown(self) -> None:
+        """Shutdown the polarization controller and underlying driver."""
+        try:
+            if hasattr(self.driver, 'shutdown'):
+                self.driver.shutdown()
+            
+            self._initialized = False
+            self.logger.info("Polarization controller shutdown completed")
+            
+        except Exception as e:
+            self.logger.error(f"Error during polarization controller shutdown: {e}")
+
+    def is_initialized(self) -> bool:
+        """Check if the polarization controller is initialized."""
+        return self._initialized
 
     def map_basis_bit_to_polarization(self, basis: Basis, bit: Bit) -> PolarizationState:
         """
@@ -240,6 +251,8 @@ class PolarizationController:
             'angle_degrees': self.current_angle,
             'jones_vector': self.create_jones_vector(self.current_angle).to_list()
         }
+    
+    # Convenience methods for setting driver-specific parameters
 
     def apply_polarization_to_queue(self) -> None:
         """
@@ -266,46 +279,6 @@ class PolarizationController:
         else:
             return {'message': 'Queue info only available for simulator driver with queues'}
 
-    def initialize(self) -> bool:
-        """Initialize the polarization controller and underlying driver."""
-        try:
-            if hasattr(self.driver, 'initialize'):
-                success = self.driver.initialize()
-                if not success:
-                    self.logger.error("Failed to initialize polarization driver")
-                    return False
-            
-            self._initialized = True
-            self.logger.info("Polarization controller initialized successfully")
-
-            # Initialize QRNG if not already done
-            if self.qrng.get_rng() is None:
-                self.qrng.set_random_seed()
-                self.logger.warning("QRNG was not initialized: setting random seed")
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error initializing polarization controller: {e}")
-            return False
-
-    def shutdown(self) -> None:
-        """Shutdown the polarization controller and underlying driver."""
-        try:
-            if hasattr(self.driver, 'shutdown'):
-                self.driver.shutdown()
-            
-            self._initialized = False
-            self.logger.info("Polarization controller shutdown completed")
-            
-        except Exception as e:
-            self.logger.error(f"Error during polarization controller shutdown: {e}")
-
-    def is_initialized(self) -> bool:
-        """Check if the polarization controller is initialized."""
-        return self._initialized
-
-    # Convenience methods for setting driver-specific parameters
     def set_com_port(self, com_port: str) -> None:
         """Set COM port for hardware driver (if applicable)."""
         if hasattr(self.driver, 'set_com_port'):

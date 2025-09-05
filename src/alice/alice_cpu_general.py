@@ -310,24 +310,22 @@ class AliceCPUGeneral:
         self._shutdown_event.set()
         self.state.is_active = False
         
-        # Stop laser controller
-        self.laser_controller.stop()
-        
         # Wait for threads to finish
         for thread in self.threads:
             if thread.is_alive():
                 thread.join(timeout=5.0)
         
         # Shutdown components
-        if hasattr(self.laser_controller._driver, 'shutdown'):
-            self.laser_controller._driver.shutdown()
+        if hasattr(self.laser_controller, 'shutdown'):
+            self.laser_controller.shutdown()
+        if hasattr(self.polarization_controller, 'shutdown'):
+            self.polarization_controller.shutdown()
+        if hasattr(self.voa_controller, 'shutdown'):
+            self.voa_controller.shutdown()
         if hasattr(self.voa_simulator, 'shutdown'):
             self.voa_simulator.shutdown()
         if hasattr(self.polarization_simulator, 'shutdown'):
-            self.polarization_simulator.shutdown()
-        
-        # Cleanup polarization controller
-        self.polarization_controller.cleanup()
+            self.polarization_simulator.shutdown()        
         
         self.logger.info("Alice transmission stopped")
     
