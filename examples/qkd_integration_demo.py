@@ -40,7 +40,7 @@ def run_simple_qkd_demo():
     alice_config = AliceConfig(
         num_pulses=5,
         pulse_period_seconds=0.1,  # 10 Hz for demo
-        use_hardware=True,  # Use simulators
+        use_hardware=False,  # Use simulators
         com_port="COM4",
         laser_channel=8,
         mode=AliceMode.STREAMING,
@@ -79,31 +79,32 @@ def run_simple_qkd_demo():
     )
     
     # Initialize Alice and Bob
-    print("Initializing Alice and Bob...")
+    print("\nInitializing Alice and Bob...\n")
     alice = AliceCPU(alice_config)
     bob = BobCPU(bob_config)
     
     # Start Bob's measurement first
-    print("Starting Bob's measurement system...")
+    print("\nStarting Bob's measurement system...\n")
     if not bob.start_measurement():
         print("Failed to start Bob's measurement")
         return
     
     # Start Alice's transmission
-    print("Starting Alice's transmission...")
+    print("\nStarting Alice's transmission...\n")
     if not alice.start_transmission():
-        print("Failed to start Alice's transmission")
-        bob.stop_measurement()
+        print("\nFailed to start Alice's transmission\n")
+        bob.stop_measurement() if bob.is_running() else None
         return
     
     # Simulate QKD protocol
-    print("Running QKD protocol...")
+    print("\nRunning QKD protocol...\n")
     pulse_count = 0
     
     try:
         while alice.is_running() and bob.is_running() and pulse_count < alice_config.num_pulses:
             # Get pulses from Alice
-            alice_pulses = alice.get_output_pulses(max_pulses=10)
+            transmission_data = alice.get_transmission_data()
+            alice_pulses = transmission_data.pulses
             
             for pulse in alice_pulses:
                 # Send pulse to Bob through the system
@@ -119,7 +120,7 @@ def run_simple_qkd_demo():
             time.sleep(0.1)
     
     except KeyboardInterrupt:
-        print("\\nDemo interrupted by user")
+        print("\n Demo interrupted by user")
     
     # Stop systems
     print("Stopping Alice and Bob...")
@@ -127,7 +128,7 @@ def run_simple_qkd_demo():
     bob.stop_measurement()
     
     # Show results
-    print("\\n" + "=" * 60)
+    print("\n" + "=" * 60)
     print("QKD Demo Results")
     print("=" * 60)
     
@@ -135,7 +136,7 @@ def run_simple_qkd_demo():
     alice_stats = alice.get_statistics()
     alice_data = alice.get_transmission_data()
     
-    print(f"\\nAlice Results:")
+    print(f"\n Alice Results:")
     print(f"  Pulses sent: {alice_stats.pulses_sent}")
     print(f"  Runtime: {alice_stats.total_runtime_seconds:.2f}s")
     print(f"  Average rate: {alice_stats.average_pulse_rate_hz:.1f} Hz")
@@ -149,7 +150,7 @@ def run_simple_qkd_demo():
     bob_stats = bob.get_statistics()
     bob_data = bob.get_measurement_data()
     
-    print(f"\\nBob Results:")
+    print(f"\n Bob Results:")
     print(f"  Total measurements: {bob_stats.total_measurements}")
     print(f"  Successful detections: {bob_stats.successful_detections}")
     print(f"  Detection efficiency: {bob.get_detection_efficiency():.3f}")
@@ -158,7 +159,7 @@ def run_simple_qkd_demo():
     print(f"  Errors: {len(bob_stats.errors)}")
     
     # Component information
-    print(f"\\nComponent Information:")
+    print(f"\n Component Information:")
     bob_info = bob.get_component_info()
     channel_info = bob_info['quantum_channel']
     print(f"  Channel transmission: {channel_info['performance']['average_transmission_efficiency']:.4f}")
@@ -166,7 +167,7 @@ def run_simple_qkd_demo():
     
     # Key matching simulation (simplified)
     if len(alice_data.bases) > 0 and len(bob_data.measurement_bases) > 0:
-        print(f"\\nBasis Matching Analysis:")
+        print(f"\n Basis Matching Analysis:")
         matching_bases = 0
         matching_bits = 0
         total_comparisons = min(len(alice_data.bases), len(bob_data.measurement_bases))
@@ -194,7 +195,7 @@ def run_simple_qkd_demo():
 def run_full_simulation_demo():
     """Run a demonstration with the full simulation Alice CPU."""
     
-    print("\\n" + "=" * 60)
+    print("\n" + "=" * 60)
     print("Full Simulation Demo (with VOA)")
     print("=" * 60)
     
@@ -235,7 +236,7 @@ def run_full_simulation_demo():
     alice_full.stop_transmission()
     
     results = alice_full.get_simulation_results()
-    print(f"\\nFull Simulation Results:")
+    print(f"\n Full Simulation Results:")
     print(f"  Pulses sent: {results.alice_state.pulses_sent}")
     print(f"  Runtime: {results.alice_state.total_runtime_s:.2f}s")
     print(f"  Component types: {results.statistics['component_types']}")
@@ -247,8 +248,8 @@ if __name__ == "__main__":
     run_simple_qkd_demo()
     
     # Run the full simulation demo
-    run_full_simulation_demo()
+    # run_full_simulation_demo()
     
-    print("\\n" + "=" * 60)
-    print("Demo completed successfully!")
+    print("\n" + "=" * 60)
+    print("Demo completed")
     print("=" * 60)

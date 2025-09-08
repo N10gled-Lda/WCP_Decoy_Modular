@@ -43,6 +43,7 @@ class AliceConfig:
     qrng_seed: Optional[int] = None
     mode: AliceMode = AliceMode.STREAMING
     laser_repetition_rate_hz: float = 1000000  # 1 MHz for hardware laser
+    laser_info: LaserInfo = field(default_factory=LaserInfo) # For simulated laser
 
 
 @dataclass
@@ -101,7 +102,8 @@ class AliceCPU:
         
         # Threading
         self._transmission_thread: Optional[threading.Thread] = None
-        self._pulse_queue = Queue(maxsize=100)
+        self._pulse_queue = Queue()
+        self._polarized_pulses_queue = Queue()
         
         # Initialize components
         self._initialize_components()
@@ -123,9 +125,8 @@ class AliceCPU:
                 digital_channel=self.config.laser_channel
             )
         else:
-            laser_info = LaserInfo()
-            laser_driver = SimulatedLaserDriver(pulses_queue=self._pulse_queue, laser_info=laser_info)
-        
+            laser_driver = SimulatedLaserDriver(pulses_queue=self._pulse_queue, laser_info=self.config.laser_info)
+
         self.laser_controller = LaserController(laser_driver)
         
         # Initialize Polarization Controller
@@ -135,8 +136,8 @@ class AliceCPU:
             pol_driver = PolarizationHardware(com_port=self.config.com_port,)
             # Note: COM port initialization should be handled within the hardware driver
         else:
-            pol_driver = PolarizationSimulator()
-        
+            pol_driver = PolarizationSimulator(pulses_queue=self._pulse_queue, polarized_pulses_queue=self._polarized_pulses_queue, laser_info=self.config.laser_info)
+
         self.polarization_controller = PolarizationController(
             driver=pol_driver,
             qrng_driver=self.qrng
