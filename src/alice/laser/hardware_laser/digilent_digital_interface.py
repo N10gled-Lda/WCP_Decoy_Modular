@@ -225,12 +225,12 @@ class DigilentDigitalInterface:
             divider = int(math.ceil(internal_clock.value / self.frequency / max_count.value))  # 2 for pulse width
             self.dwf.FDwfDigitalOutDividerSet(self.hdwf, c_int(self.digital_channel), c_int(divider))
 
-            print(f"Divider set to: {divider} (internal clock {internal_clock.value} Hz / frequency {self.frequency} Hz / max count {max_count.value})")
+            self.logger.debug(f"Divider set to: {divider} (internal clock {internal_clock.value} Hz / frequency {self.frequency} Hz / max count {max_count.value})")
             
             # Calculate low/high ticks based on duty cycle
             pulse_ticks = int(math.ceil(internal_clock.value / self.frequency / divider))
             duty_cycle = max(0.0001, min(self.duty_cycle, 0.99))  # Clamp to 0.01%-99%
-            print(f"Duty cycle: {duty_cycle*100:.1f}% of pulse are high")
+            self.logger.debug(f"Duty cycle: {duty_cycle*100:.1f}% of pulse are high")
             
             if duty_cycle > 0.9:
                 self.logger.warning(f"Duty cycle {duty_cycle*100:.1f}% is quite high, consider reducing for better edge triggering")
@@ -241,7 +241,7 @@ class DigilentDigitalInterface:
             low_ticks = pulse_ticks - high_ticks
             t_ticks = 1 / (internal_clock.value / divider)  # Time per tick
 
-            print(f"Counter Set Pulse parameters: duty_cycle={duty_cycle*100:.1f}%, "
+            self.logger.debug(f"Counter Set Pulse parameters: duty_cycle={duty_cycle*100:.1f}%, "
                   f"freq={self.frequency:.1f}Hz, "
                   f"pulse={pulse_ticks} clk, "
                   f"low_ticks={low_ticks}, high_ticks={high_ticks}"
@@ -326,13 +326,13 @@ class DigilentDigitalInterface:
             return False
         
         try:
-            print(f"frequency: {self.frequency:.1f} Hz, duty_cycle: {self.duty_cycle*100:.1f}%")
+            self.logger.debug(f"frequency: {self.frequency:.1f} Hz, duty_cycle: {self.duty_cycle*100:.1f}%")
             # Configure for single pulse
             if self.dwf.FDwfDigitalOutRepeatSet(self.hdwf, c_int(1)) != 1:
                 self.logger.error("Failed to set single pulse mode")
                 return False
             nb_pulses = 1  # Single pulse
-            print(f"Running for {nb_pulses/self.frequency:.5f} s")
+            self.logger.debug(f"Running for {nb_pulses/self.frequency:.5f} s")
             if self.dwf.FDwfDigitalOutRunSet(self.hdwf, c_double(nb_pulses / self.frequency)) != 1:
                 self.logger.error("Failed to set pulse run time")
                 return False
@@ -342,7 +342,7 @@ class DigilentDigitalInterface:
                 self.logger.error("Failed to start pulse")
                 return False
             
-            print("Here1")
+            self.logger.debug("Here1")
             # Wait for completion
             self._wait_for_completion()
             
@@ -351,7 +351,7 @@ class DigilentDigitalInterface:
                 self.logger.error("Failed to stop digital output")
                 return False
             
-            print("Here2")
+            self.logger.debug("Here2")
             self.pulse_count += 1
             self.last_pulse_time = time.time()
             
@@ -389,14 +389,14 @@ class DigilentDigitalInterface:
             if frequency is not None:
                 self.set_pulse_parameters(self.duty_cycle, frequency, self.idle_state)
             
-            print(f"Starting pulse train: {n_pulses} pulses at {self.frequency:.1f} Hz")
+            self.logger.debug(f"Starting pulse train: {n_pulses} pulses at {self.frequency:.1f} Hz")
             # Configure for pulse train
             if self.dwf.FDwfDigitalOutRepeatSet(self.hdwf, c_int(1)) != 1:
                 self.logger.error("Failed to set pulse train mode")
                 return False
             
             nb_pulses = n_pulses # Number of pulses to send
-            print(f"Running for {nb_pulses/self.frequency:.5f} s")
+            self.logger.debug(f"Running for {nb_pulses/self.frequency:.5f} s")
             if self.dwf.FDwfDigitalOutRunSet(self.hdwf, c_double(nb_pulses / self.frequency)) != 1:
                 self.logger.error("Failed to set pulse run time")
                 return False
@@ -406,7 +406,7 @@ class DigilentDigitalInterface:
                 self.logger.error("Failed to start pulse")
                 return False
             
-            print("Here1")
+            self.logger.debug("Here1")
             # Wait for completion
             self._wait_for_completion()
             
@@ -415,7 +415,7 @@ class DigilentDigitalInterface:
                 self.logger.error("Failed to stop digital output")
                 return False
             
-            print("Here2")
+            self.logger.debug("Here2")
             
             self.running = True
             self.pulse_count += n_pulses
@@ -501,7 +501,7 @@ class DigilentDigitalInterface:
             sts = c_int()
             try:
                 if self.dwf.FDwfDigitalOutStatus(self.hdwf, byref(sts)) == 1:
-                    print(sts.value)
+                    self.logger.debug(sts.value)
                     if sts.value == DwfStateDone.value:
                         break
                 time.sleep(0.0001)  # 100us polling

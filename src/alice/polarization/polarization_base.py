@@ -46,6 +46,14 @@ class PolarizationState(IntEnum):
         else:
             return Bit.ONE
 
+    @staticmethod
+    def from_basis_bit(basis: Basis, bit: Bit) -> 'PolarizationState':
+        """Create a polarization state from basis and bit value."""
+        if basis == Basis.Z:
+            return PolarizationState.H if bit == Bit.ZERO else PolarizationState.V
+        else:
+            return PolarizationState.D if bit == Bit.ZERO else PolarizationState.A
+
 
 class JonesVector:
     """Jones vector representation of polarization state."""

@@ -34,6 +34,7 @@ class PolarizationSimulator(BasePolarizationDriver):
         # Current state
         self.current_angle = 0.0
         self.current_state = PolarizationState.H
+        self.current_photons = 0
         self._is_on = False
         
         # Performance parameters
@@ -89,7 +90,7 @@ class PolarizationSimulator(BasePolarizationDriver):
             # basis=self.current_state.basis,
             # bit_value=self.current_state.bit_value
         )
-        
+        self.current_photons = pulse.photons
         self.logger.info(f"Applied polarization: {processed_pulse}")
         self.logger.debug(f"Pulse polarized with {self.current_state} ({self.current_angle}°)")
         return processed_pulse

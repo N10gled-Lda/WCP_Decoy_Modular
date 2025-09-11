@@ -30,6 +30,7 @@ class AliceMode(Enum):
     """Operation modes for Alice CPU."""
     BATCH = "batch"          # Pre-generate all random bits before starting
     STREAMING = "streaming"  # Generate bits on-demand during transmission
+    # PREDERTERMINED = "predetermined"  # Use pre-set sequences (not implemented)
 
 
 @dataclass
@@ -53,6 +54,7 @@ class AliceStats:
     total_runtime_seconds: float = 0.0
     average_pulse_rate_hz: float = 0.0
     rotation_times: List[float] = field(default_factory=list)
+    wait_times: List[float] = field(default_factory=list)  # Time waiting for polarization readiness
     laser_times: List[float] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
 
@@ -166,6 +168,10 @@ class AliceCPU:
             # Pre-generate random bits for batch mode
             if self.config.mode == AliceMode.BATCH:
                 self._generate_batch_random_bits()
+
+            # TODO: Check in the future if this still happens a period after last pulse
+            # Set polarization controller period to 1ms to avoid delays when sending one by one
+            self.polarization_controller.driver.set_operation_period(1)
             
             self.logger.info("Alice system initialized successfully")
             return True
@@ -283,16 +289,30 @@ class AliceCPU:
                         basis, bit = self._get_streaming_random_bits()
                     
                     # Rotate polarization
+                    print(f"🔸 Setting polarization for pulse {pulse_id}: Basis={basis}, Bit={bit}")
                     rotation_start = time.time()
                     pol_output = self.polarization_controller.set_polarization_manually(basis, bit)
                     rotation_time = time.time() - rotation_start
                     self.stats.rotation_times.append(rotation_time)
-                    
+                    print(f"   ➡️  Polarization set to {pol_output.angle_degrees}°")
+                    # Wait for polarization to be ready (hardware only)
+                    print(f"🔸 Waiting for polarization to be ready...")
+                    wait_start = time.time()
+                    if not self.polarization_controller.wait_for_availability(timeout=10.0):
+                        self.logger.error(f"Timeout waiting for polarization readiness for pulse {pulse_id}")
+                        raise RuntimeError(f"Polarization not ready for pulse {pulse_id}")
+                    wait_time = time.time() - wait_start
+                    self.stats.wait_times.append(wait_time)
+                    print(f"   ➡️  Polarization ready after {wait_time:.3f}s")
+
+
                     # Fire laser pulse
+                    print(f"🔸 Firing laser pulse {pulse_id}")
                     laser_start = time.time()
                     pulse = self._create_and_send_pulse(pol_output, pulse_id, pulse_start_time)
                     laser_time = time.time() - laser_start
                     self.stats.laser_times.append(laser_time)
+                    print(f"   ➡️  Laser pulse {pulse_id} fired")
                     
                     # Record data
                     self._record_transmission_data(pulse, pol_output, basis, bit, pulse_id)

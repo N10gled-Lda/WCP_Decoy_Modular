@@ -1,5 +1,6 @@
 """Polarization Controller."""
 import logging
+import numbers
 from queue import Queue
 from typing import Optional, Tuple, Union, List
 from dataclasses import dataclass
@@ -87,6 +88,43 @@ class PolarizationController:
     def is_initialized(self) -> bool:
         """Check if the polarization controller is initialized."""
         return self._initialized
+
+    def is_available(self) -> bool:
+        """
+        Check if the polarization controller is available for new commands.
+        For hardware, this means the physical rotation is complete.
+        For simulators, this is always True.
+        
+        Returns:
+            True if ready for new commands, False otherwise
+        """
+        if hasattr(self.driver, 'available'):
+            return self.driver.available
+        return True  # Simulators are always available
+
+    def wait_for_availability(self, timeout: float = 5.0) -> bool:
+        """
+        Wait for the polarization controller to become available.
+        
+        Args:
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            True if available within timeout, False if timeout occurred
+        """
+        import time
+        
+        if not hasattr(self.driver, 'available'):
+            return True  # Simulators are always available
+            
+        start_time = time.time()
+        while not self.driver.available:
+            if time.time() - start_time > timeout:
+                self.logger.warning(f"Timeout waiting for polarization availability after {timeout}s")
+                return False
+            time.sleep(0.001)  # Small sleep to avoid busy waiting
+            
+        return True
 
     def map_basis_bit_to_polarization(self, basis: Basis, bit: Bit) -> PolarizationState:
         """
@@ -195,7 +233,7 @@ class PolarizationController:
         self.logger.info(f"Set polarization: {basis} basis, bit {bit} → {state} ({angle}°)")
         return output
 
-    def set_polarization_manually(self, basis: Basis, bit: Bit) -> PolarizationOutput:
+    def set_polarization_manually(self, basis: Union[Basis, int], bit: Union[Bit, int]) -> PolarizationOutput:
         """
         Manually set polarization for specific basis/bit combination.
         
@@ -206,21 +244,23 @@ class PolarizationController:
         Returns:
             PolarizationOutput containing complete polarization information
         """
-        state = self.map_basis_bit_to_polarization(basis, bit)
-        angle = self.calculate_polarization_angle(basis, bit)
+        basis_val = Basis.from_int(basis) if isinstance(basis, int) else basis
+        bit_val = Bit(bit) if isinstance(bit, int) else bit
+        state = self.map_basis_bit_to_polarization(basis_val, bit_val)
+        angle = self.calculate_polarization_angle(basis_val, bit_val)
         # angle = state.angle_degrees
         jones_vector = self.create_jones_vector(angle)
         
         self.set_polarization_state(state)
-        
-        self.current_basis = basis
-        self.current_bit = bit
+
+        self.current_basis = basis_val
+        self.current_bit = bit_val
         self.current_state = state
         self.current_angle = angle
         
         output = PolarizationOutput(
-            basis=basis,
-            bit=bit,
+            basis=basis_val,
+            bit=bit_val,
             polarization_state=state,
             angle_degrees=angle,
             jones_vector=jones_vector.to_list()
@@ -241,6 +281,37 @@ class PolarizationController:
             self.logger.warning("Polarization driver has no recognized set method")
         
         self.logger.debug(f"Set polarization state {state} at {angle}°")
+
+    def set_polarization_multiple_states(self, states: Union[List[PolarizationState],List[int]], period: float = None, stepper_freq: float = None) -> bool:
+        """Set multiple polarization states.
+        Args:
+            - states: list of PolarizationState
+            - period: operation period (if applicable) - must be integer between 1 and 60000 ms
+            - stepper_freq: stepper motor frequency (if applicable) - must be integer between 1 and 500 Hz
+        """
+        # Set period of stepper motor
+        if hasattr(self.driver, 'set_operation_period') and period is not None:
+            self.driver.set_operation_period(period)
+        elif hasattr(self.driver, 'set_stepper_frequency') and stepper_freq is not None:
+            self.driver.set_stepper_frequency(stepper_freq)
+        else:
+            self.logger.warning("Driver doesn't support setting stepper frequency or period setter")
+            return False
+
+        if hasattr(self.driver, 'set_polarization_numbers'):
+            if isinstance(states[0], PolarizationState):
+                numbers = [state.value for state in states]
+            elif isinstance(states[0], int):
+                numbers = states
+            else:
+                self.logger.error("Invalid state representation")
+                return False
+            self.driver.set_polarization_numbers(numbers)
+        else:
+            self.logger.warning("Driver doesn't support setting polarization numbers")
+            return False
+
+        return True
 
     def get_current_state(self) -> dict:
         """Get current polarization state information."""

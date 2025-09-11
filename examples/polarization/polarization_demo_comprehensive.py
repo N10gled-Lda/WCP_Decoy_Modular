@@ -2,6 +2,7 @@
 import sys
 import os
 
+
 # Add the project root to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
@@ -214,11 +215,11 @@ class PolarizationControllerDemo:
                     
                     if hasattr(hardware_driver, 'set_angle_direct'):
                         self.logger.info("  Testing direct angle control...")
-                        success = hardware_driver.set_angle_direct(30.0)
+                        success = hardware_driver.set_angle_direct(30)
                         self.logger.info(f"    Set angle to 30°: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
                         
-                        success = hardware_driver.set_angle_direct(60.0, use_offset=True)
+                        success = hardware_driver.set_angle_direct(60, is_offset=True)
                         self.logger.info(f"    Set angle with offset to 60°: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
                     else:
@@ -226,7 +227,7 @@ class PolarizationControllerDemo:
                     
                     if hasattr(hardware_driver, 'set_stepper_frequency'):
                         self.logger.info("  Testing stepper frequency control...")
-                        success = hardware_driver.set_stepper_frequency(800.0)
+                        success = hardware_driver.set_stepper_frequency(800)
                         self.logger.info(f"    Set stepper frequency to 800 Hz: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
                     else:
@@ -241,11 +242,31 @@ class PolarizationControllerDemo:
                         self.logger.warning("  No set_operation_period method available in hardware driver")
                         
                     self.logger.info("  ✅ New STM32 command testing completed")
-                    
                 except Exception as e:
                     self.logger.error(f"  ❌ New STM32 command testing failed: {e}")
                 
-                # Test 5: State verification
+                
+                # Test 5: Set multiples polarizations with a certain period and freq:
+                logger.info("\n🔧 Testing setting multiple polarization states:")
+                try:
+                    states = [0,1,2,3,1]
+                    period = 1000 # Period between states of 1s
+                    freq = 500 # Stepper frequency of 500Hz
+                    success = controller.set_polarization_multiple_states(states, period=period, stepper_freq=freq)
+                    self.logger.info(f"  Set multiple states {states} with period {period} ms and freq {freq} Hz: {'✅ Success' if success else '❌ Failed'}")
+                    # Wait until the device available meaning that its ended the sequence
+                    start = time.time()
+                    while not controller.is_available():
+                        time.sleep(0.01)
+                        # self.logger.info(f"  Waiting for device to finish the sequence... time pass: {time.time() - start}")
+                    self.logger.info(f"  Device is now available after {time.time() - start} seconds")
+
+                    self.logger.info("✅ Multiple polarization states test completed")
+                    
+                except Exception as e:
+                    self.logger.error(f"  ❌ Setting multiple polarization states failed: {e}")
+
+                # Test 6: State verification
                 self.logger.info("\n📊 Testing state verification:")
                 current_state = controller.get_current_state()
                 self.logger.info(f"  Current state: {current_state}")

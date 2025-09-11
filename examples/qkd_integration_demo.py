@@ -38,13 +38,13 @@ def run_simple_qkd_demo():
     
     # Configure Alice (simple hardware test version)
     alice_config = AliceConfig(
-        num_pulses=5,
-        pulse_period_seconds=0.1,  # 10 Hz for demo
-        use_hardware=False,  # Use simulators
+        num_pulses=10,
+        pulse_period_seconds=1,  # 10 Hz for demo
+        use_hardware=True,  # Use simulators
         com_port="COM4",
         laser_channel=8,
         mode=AliceMode.STREAMING,
-        qrng_seed=42
+        qrng_seed=40
     )
     
     # Configure Bob
@@ -71,7 +71,7 @@ def run_simple_qkd_demo():
     
     bob_config = BobConfig(
         mode=BobMode.PASSIVE,
-        measurement_duration_s=15.0,  # 15 seconds for demo
+        measurement_duration_s=30.0,  # 30 seconds for demo
         channel_config=channel_config,
         optical_table_config=optical_config,
         detector_configs=detector_configs,
@@ -101,28 +101,46 @@ def run_simple_qkd_demo():
     pulse_count = 0
     
     try:
-        while alice.is_running() and bob.is_running() and pulse_count < alice_config.num_pulses:
-            # Get pulses from Alice
-            transmission_data = alice.get_transmission_data()
-            alice_pulses = transmission_data.pulses
+        while alice.is_running() and pulse_count < alice_config.num_pulses:
+            # # Get pulses from Alice
+            # transmission_data = alice.get_transmission_data()
+            # alice_pulses = transmission_data.pulses
+            # print(f"DEBUG: Transmission data pulses: {alice_pulses}")
+            # for pulse in alice_pulses:
+            #     # Send pulse to Bob through the system
+            #     bob.receive_pulse(pulse)
+            #     pulse_count += 1
+            # print(f"DEBUG: Total pulses sent to Bob: {pulse_count} / {alice_config.num_pulses} (alice runing: {alice.is_running()})")
+            # # Show progress
+            # # if pulse_count % 20 == 0:
+            # #     alice_progress = alice.get_progress()
+            # #     bob_efficiency = bob.get_detection_efficiency()
+            # #     print(f"Progress: {alice_progress:.1f}%, Detection efficiency: {bob_efficiency:.3f}")
             
-            for pulse in alice_pulses:
-                # Send pulse to Bob through the system
-                bob.receive_pulse(pulse)
-                pulse_count += 1
-            
-            # Show progress
-            if pulse_count % 20 == 0:
-                alice_progress = alice.get_progress()
-                bob_efficiency = bob.get_detection_efficiency()
-                print(f"Progress: {alice_progress:.1f}%, Detection efficiency: {bob_efficiency:.3f}")
-            
+            # time.sleep(10)
+
+            # Show progress:
+            print(f"---------------> Alice Running: {alice.is_running()}, Bob Running: {bob.is_running()}")
             time.sleep(0.1)
+            
     
     except KeyboardInterrupt:
         print("\n Demo interrupted by user")
     
     # Stop systems
+    print("\n Alice Running:", alice.is_running())
+    # Get transmission data
+    alice_data = alice.get_transmission_data()
+    print(f"DEBUG: Final Transmission data pulses: {alice_data.pulses}")
+
+    pulse_count = len(alice_data.pulses)
+    print(f"Total pulses sent to Bob: {pulse_count} / {alice_config.num_pulses}")
+    print(f"Basis: {alice_data.bases}")
+    print(f"Bits: {alice_data.bits}")
+    print(f"Times: {alice_data.pulse_times}")
+    print(f"Angles: {alice_data.polarization_angles}")
+
+
     print("Stopping Alice and Bob...")
     alice.stop_transmission()
     bob.stop_measurement()
@@ -192,64 +210,10 @@ def run_simple_qkd_demo():
             print(f"  Potential key bits: {matching_bits}")
 
 
-def run_full_simulation_demo():
-    """Run a demonstration with the full simulation Alice CPU."""
-    
-    print("\n" + "=" * 60)
-    print("Full Simulation Demo (with VOA)")
-    print("=" * 60)
-    
-    # Configure full simulation
-    sim_config = SimulationConfig(
-        pulses_total=500,
-        use_hardware=False,  # Pure simulation
-        use_hardware_qrng=False,
-        use_hardware_laser=False,
-        use_hardware_voa=False,
-        use_hardware_polarization=False,
-        pulse_period_seconds=0.01,  # 100 Hz
-        random_seed=42,
-        
-        # Enhanced configurations
-        laser=LaserInfo(
-            central_wavelength_nm=1550.0,
-            max_power_mW=1.0,
-            polarization_extinction_ratio_dB=25.0
-        ),
-        decoy_scheme=DecoyInfo(
-            intensities={"signal": 0.5, "weak": 0.1, "vacuum": 0.0},
-            probabilities={"signal": 0.7, "weak": 0.2, "vacuum": 0.1}
-        )
-    )
-    
-    # Initialize full Alice
-    print("Initializing full simulation Alice...")
-    alice_full = AliceCPUGeneral(sim_config)
-    
-    print("Starting full simulation...")
-    alice_full.start_transmission()
-    
-    # Let it run for a few seconds
-    time.sleep(5.0)
-    
-    # Stop and show results
-    alice_full.stop_transmission()
-    
-    results = alice_full.get_simulation_results()
-    print(f"\n Full Simulation Results:")
-    print(f"  Pulses sent: {results.alice_state.pulses_sent}")
-    print(f"  Runtime: {results.alice_state.total_runtime_s:.2f}s")
-    print(f"  Component types: {results.statistics['component_types']}")
-    print(f"  Queue sizes: {results.statistics['queue_sizes']}")
-
-
 if __name__ == "__main__":
     # Run the simple demo
     run_simple_qkd_demo()
-    
-    # Run the full simulation demo
-    # run_full_simulation_demo()
-    
+        
     print("\n" + "=" * 60)
     print("Demo completed")
     print("=" * 60)

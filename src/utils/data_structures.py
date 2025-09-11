@@ -46,6 +46,16 @@ class Basis(Enum):
     Z = "Z"  # Rectilinear basis (H/V)
     X = "X"  # Diagonal basis (D/A)
 
+    # Allow for 0 and 1 as integer representations
+    @classmethod
+    def from_int(cls, value: int) -> "Basis":
+        if value == 0:
+            return cls.Z
+        elif value == 1:
+            return cls.X
+        else:
+            raise ValueError(f"Invalid basis integer: {value}")
+
 class Bit(IntEnum):
     """Binary bit values."""
     ZERO = 0

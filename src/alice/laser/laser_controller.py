@@ -8,14 +8,8 @@ from src.utils.data_structures import Pulse
 
 
 # Import specific driver classes for type hints
-try:
-    from src.alice.laser.laser_simulator import SimulatedLaserDriver
-    from src.alice.laser.laser_hardware_digital import DigitalHardwareLaserDriver
-except ImportError:
-    # Handle case where some drivers might not be available
-    SimulatedLaserDriver = None
-    DigitalHardwareLaserDriver = None
-
+from src.alice.laser.laser_simulator import SimulatedLaserDriver
+from src.alice.laser.laser_hardware_digital import DigitalHardwareLaserDriver
 
 class LaserController:
     """
