@@ -8,10 +8,14 @@ from typing import Optional, Union
 
 
 class OperationMode(Enum):
-    """QRNG operation modes."""
+    """QRNG operation modes.
+        - BATCH: Pre-generate all bits at once.
+        - STREAMING: Generate bits on-the-fly one bye one.
+        - DETERMINISTIC: Use a fixed seed for reproducibility.
+    """
     BATCH = "batch"        # Pre-generate all bits
     STREAMING = "streaming"  # Generate on-demand
-    DETERMINISTIC = "deterministic"  # Use PRNG for testing
+    DETERMINISTIC = "deterministic"  # Use seeded for testing
 
 
 # TODO: Add later like entropy or noise or bias possibility in the simulator

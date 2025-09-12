@@ -46,6 +46,18 @@ class Basis(Enum):
     Z = "Z"  # Rectilinear basis (H/V)
     X = "X"  # Diagonal basis (D/A)
 
+    # when you do int(Basis) you get 0/1
+    def __str__(self):
+        return self.value
+    def __int__(self) -> int:
+        return self.int
+
+    @property
+    def int(self) -> int:
+        if self == Basis.Z: return 0
+        elif self == Basis.X: return 1
+        else: raise ValueError(f"Invalid basis: {self}")
+
     # Allow for 0 and 1 as integer representations
     @classmethod
     def from_int(cls, value: int) -> "Basis":
