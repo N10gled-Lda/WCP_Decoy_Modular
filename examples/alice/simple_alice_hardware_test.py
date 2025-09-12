@@ -129,8 +129,6 @@ class SimpleAliceHardwareTest:
         # Initialize Polarization Controller
         if self.config.use_hardware and self.config.com_port is not None:
             pol_driver = PolarizationHardware(com_port=self.config.com_port)
-            # !!! Set period of stepmottor for 1ms since the stepmottor wait for this period after sending a single pulse afecting the check availability if high !!!
-            pol_driver.set_operation_period(1)
             self.logger.info(f"Using hardware polarization on {self.config.com_port}")
         else:
             pol_driver = PolarizationSimulator(
@@ -229,7 +227,10 @@ class SimpleAliceHardwareTest:
             raise RuntimeError("Laser controller is not initialized")
 
         self.logger.info("Starting Alice hardware test...")
-        
+
+        # !!! Set period of stepmottor for 1ms since the stepmottor wait for this period after sending a single pulse afecting the check availability if high !!!
+        self.polarization_controller.driver.set_operation_period(1)
+        self.polarization_controller.driver.set_stepper_frequency(500)
         self._running = True
         start_time = time.time()
         
@@ -268,6 +269,7 @@ class SimpleAliceHardwareTest:
                 pol_output = self.polarization_controller.set_polarization_manually(basis, bit)
                 rotation_time = time.time() - rotation_start
                 print(f"   ➡️  Polarization set to {pol_output.angle_degrees}°")
+                print(f"       (Rotation time: {rotation_time:.3f}s)")
                 
                 # Wait for polarization readiness
                 print(f"🔸 Pulse {pulse_id}: Waiting for polarization readiness...")
@@ -278,7 +280,7 @@ class SimpleAliceHardwareTest:
                     self.results.errors.append(error_msg)
                     continue
                 wait_time = time.time() - wait_start
-                print(f"   ➡️  Polarization ready after {wait_time:.3f}s")
+                print(f"   ➡️  Polarization ready after {wait_time:.3f}s / {time.time() - pulse_start_time:.3f}s")
                 
                 # Fire laser
                 print(f"🔸 Pulse {pulse_id}: Firing laser")
@@ -309,7 +311,7 @@ class SimpleAliceHardwareTest:
                     self.logger.debug(f"Waiting {remaining_time:.3f}s for next pulse")
                     time.sleep(remaining_time)
                 else:
-                    self.logger.warning(f"Pulse {pulse_id} exceeded period: {total_pulse_time:.3f}s > {self.config.pulse_period_seconds}s")
+                    self.logger.warning(f" ⚠️ Pulse {pulse_id} exceeded period: {total_pulse_time:.3f}s > {self.config.pulse_period_seconds}s")
                 
                 print(f"   ✅ Pulse {pulse_id} completed\n")
                 
@@ -317,6 +319,10 @@ class SimpleAliceHardwareTest:
             error_msg = f"Error in hardware test thread: {e}"
             self.logger.error(error_msg)
             self.results.errors.append(error_msg)
+        except KeyboardInterrupt:
+            self.logger.info("Hardware test interrupted by user")
+            self._running = False
+            self._shutdown()
         finally:
             self._running = False
             self._shutdown()
@@ -494,6 +500,71 @@ def demo_hardware_test():
         print(f"❌ Hardware test failed: {e}")
         print("   (This is expected if no hardware is connected)")
 
+def demo_hardware_test_predetermined():
+    """Demonstrate hardware test with predetermined sequence (if available)."""
+    print("\n" + "=" * 60)
+    print("Alice Hardware Test - Predetermined Hardware Mode")
+    print("=" * 60)
+    
+    # Define specific sequence for testing
+    predetermined_bits = [0, 1, 1, 0, 1]    # Bit sequence
+    predetermined_bases = [0, 0, 1, 1, 0]   # Basis sequence (0=Z, 1=X)
+    predetermined_bits = [0, 1, 0, 1, 0, 0, 0, 1]    # Bit sequence
+    predetermined_bases = [0, 0, 1, 1, 0, 1, 0, 1]   # Basis sequence (0=Z, 1=X)
+    
+    print(f"Predetermined sequence:")
+    for i in range(len(predetermined_bits)):
+        basis_name = "Z" if predetermined_bases[i] == 0 else "X"
+        print(f"  Pulse {i}: bit={predetermined_bits[i]}, basis={basis_name}")
+    print()
+    
+    # Hardware configuration (adjust COM port and laser channel as needed)
+    config = AliceTestConfig(
+        num_pulses=len(predetermined_bits),
+        pulse_period_seconds=1,
+        use_hardware=True,
+        com_port="COM4",  # Adjust for your setup
+        laser_channel=8,   # Adjust for your setup
+        mode=AliceTestMode.PREDETERMINED,
+        predetermined_bits=predetermined_bits,
+        predetermined_bases=predetermined_bases
+    )
+    
+    try:
+        test = SimpleAliceHardwareTest(config)
+        results = test.run_test()
+        
+        print("\n" + "=" * 60)
+        print("Predetermined Hardware Test Results")
+        print("=" * 60)
+        print(f"✓ Pulses generated: {len(results.bits)}")
+        print(f"✓ Total runtime: {results.total_runtime:.2f}s")
+        
+        # Verify sequence matches
+        sequence_correct = (results.bits == predetermined_bits and 
+                           results.bases == predetermined_bases)
+        print(f"✓ Sequence verification: {'PASSED' if sequence_correct else 'FAILED'}")
+        
+        print(f"✓ Expected bits: {predetermined_bits}")
+        print(f"✓ Actual bits:   {results.bits}")
+        print(f"✓ Expected bases: {predetermined_bases}")
+        print(f"✓ Actual bases:   {results.bases}")
+        print(f"✓ Angles: {[f'{angle:.1f}°' for angle in results.polarization_angles]}")
+        
+        # Hardware-specific metrics
+        if results.wait_times:
+            avg_wait = sum(results.wait_times) / len(results.wait_times)
+            max_wait = max(results.wait_times)
+            print(f"✓ Avg wait time: {avg_wait:.3f}s")
+            print(f"✓ Max wait time: {max_wait:.3f}s")
+        if results.errors:
+            print(f"⚠️  Errors: {results.errors}")
+        else:
+            print("✅ Predetermined hardware test completed successfully!")
+
+    except Exception as e:
+        print(f"❌ Predetermined hardware test failed: {e}")
+        print("   (This is expected if no hardware is connected)")
 
 if __name__ == "__main__":
     # Setup logging
@@ -507,9 +578,10 @@ if __name__ == "__main__":
     print()
     
     # Run all demo tests
-    demo_random_test()
-    demo_predetermined_test()
-    demo_hardware_test()
+    # demo_random_test()
+    # demo_predetermined_test()
+    # demo_hardware_test()
+    demo_hardware_test_predetermined()
     
     print("\n" + "=" * 60)
     print("Test Suite Completed")

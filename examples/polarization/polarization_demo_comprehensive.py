@@ -227,16 +227,16 @@ class PolarizationControllerDemo:
                     
                     if hasattr(hardware_driver, 'set_stepper_frequency'):
                         self.logger.info("  Testing stepper frequency control...")
-                        success = hardware_driver.set_stepper_frequency(800)
-                        self.logger.info(f"    Set stepper frequency to 800 Hz: {'✅ Success' if success else '❌ Failed'}")
+                        success = hardware_driver.set_stepper_frequency(500)
+                        self.logger.info(f"    Set stepper frequency to 500 Hz: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
                     else:
                         self.logger.warning("  No set_stepper_frequency method available in hardware driver")
                     
                     if hasattr(hardware_driver, 'set_operation_period'):
                         self.logger.info("  Testing operation period control...")
-                        success = hardware_driver.set_operation_period(1000)
-                        self.logger.info(f"    Set operation period to 1000 ms: {'✅ Success' if success else '❌ Failed'}")
+                        success = hardware_driver.set_operation_period(10)
+                        self.logger.info(f"    Set operation period to 10 ms: {'✅ Success' if success else '❌ Failed'}")
                         time.sleep(0.5)
                     else:
                         self.logger.warning("  No set_operation_period method available in hardware driver")
