@@ -1,17 +1,23 @@
+import os
 import pickle
 import socket
+import sys
 import threading
 import time
 import random
 import queue
 
+# Add parent directory to path if the module is there
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from BB84.bb84_protocol.qubit2 import Qubit2
 from classical_communication_channel.communication_channel.role import Role
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))))
 from src.alice.polarization.hardware_pol.interface_stepperMotor.imports.stm32_interface import *
 
 # Configure logging
 import logging
-from examples.logging_setup import setup_logger
+from BB84.logging_setup import setup_logger
 # Setup logger
 logger = setup_logger("BB84 Simulation Log", logging.INFO)
 

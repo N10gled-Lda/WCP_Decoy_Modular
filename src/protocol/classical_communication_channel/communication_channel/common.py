@@ -2,7 +2,7 @@ import logging
 import socket
 from time import perf_counter
 
-from communication_channel.connection_info import ConnectionInfo
+from classical_communication_channel.communication_channel.connection_info import ConnectionInfo
 
 INTEGER_LENGTH_IN_BYTES = 4
 

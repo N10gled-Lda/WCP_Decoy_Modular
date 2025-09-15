@@ -16,7 +16,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from queue import Queue
 
 # Add the project root to Python path
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
 from src.utils.data_structures import Pulse, Basis, Bit, LaserInfo

@@ -6,9 +6,11 @@ from qkd_alice_implementation_class import QKDAliceImplementation
 
 if __name__ == "__main__":
     ### IP, PORTs, CONNECTIONs ###
-    IP_ADDRESS_ALICE = "0.0.0.0"
+    #IP_ADDRESS_ALICE = "0.0.0.0"
+    IP_ADDRESS_ALICE = "10.127.1.117"
     # IP_ADDRESS_ALICE = "127.0.0.2"
-    IP_ADDRESS_BOB = "127.0.0.3"
+    #IP_ADDRESS_BOB = "127.0.0.3"
+    IP_ADDRESS_BOB = "10.127.1.118"
     # IP_ADDRESS = "88.157.92.155"
     PORT_NUMBER_ALICE = 5000
     PORT_NUMBER_BOB = 65437
