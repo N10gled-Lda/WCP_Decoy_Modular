@@ -2,8 +2,8 @@
 wcp_decoy_qkd_modular_claude/*
 
 # Protocol modules from other projects
-# ADD THESE AS SUBMODULES!!!???
-src/protocol/*
+# TODO: ADD THESE AS SUBMODULES!!!???
+# src/protocol/*
 
 
 

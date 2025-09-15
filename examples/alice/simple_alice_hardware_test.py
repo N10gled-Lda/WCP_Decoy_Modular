@@ -156,7 +156,8 @@ class SimpleAliceHardwareTest:
         """Validate predetermined sequences if provided."""
         if self.config.mode != (AliceTestMode.PREDETERMINED or AliceTestMode.RANDOM_BATCH):
             return True
-            
+        
+        # Validade predetertermined sequences sizes
         if self.config.predetermined_bits is None or self.config.predetermined_bases is None:
             self.logger.error("Predetermined mode requires both bits and bases to be specified")
             return False
@@ -211,6 +212,7 @@ class SimpleAliceHardwareTest:
             # Get batch of bases and bits before sending
             self.config.predetermined_bases = self.qrng.get_random_bit(size=self.config.num_pulses)
             self.config.predetermined_bits = self.qrng.get_random_bit(size=self.config.num_pulses)
+            self._validate_predetermined_sequences()
             return True
         return True
 
