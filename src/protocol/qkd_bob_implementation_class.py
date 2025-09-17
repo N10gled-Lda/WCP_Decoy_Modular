@@ -90,6 +90,7 @@ class QKDBobImplementation:
         """
         # Setup the connection for the classical communication channel
         mac_configuration = MAC_Config(MAC_Algorithms.CMAC, self._shared_secret_key)
+        #mac_configuration = None
         bob_info = ConnectionInfo(self._ip_address_bob, self._port_number_bob)
         role_bob = Role.get_instance(bob_info, mac_config=mac_configuration,
                                      bandwidth_limit_megabytes_per_second=bandwidth_limit_megabytes_per_second,
@@ -106,7 +107,7 @@ class QKDBobImplementation:
         return role_bob
 
     def bob_quantum_step(self, num_qubits, num_frames, bytes_per_frame, sync_frames,
-                           sync_bytes_per_frame, port_number_quantic_channel=13122):
+                           sync_bytes_per_frame, fixed_error_rate=0.0, port_number_quantic_channel=13122):
         """
         Performs the simulation of a Quantum Channel through a Classical Channel.
         """
@@ -119,7 +120,12 @@ class QKDBobImplementation:
             sync_bytes_per_frame=sync_bytes_per_frame,
         )
 
-        bob_qubit.run_bob_qubits(connection)
+        bool_fixed_error_rate = False if fixed_error_rate <= 0.0 else True
+        
+
+        #bob_qubit.run_bob_qubits(connection)
+        bob_qubit.run_mock_bob_qubits(connection, fixed_fake_error_bool=bool_fixed_error_rate, fixed_fake_error_rate=fixed_error_rate)
+        connection.close()
         print(f"Bob Qubits Received.")
 
         return bob_qubit
