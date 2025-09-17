@@ -101,9 +101,10 @@ class QKDAliceImplementation:
                                   loss_rate=loss_rate,
                                   )
 
-        alice_qubit.run_alice_qubits(connection)
+        #alice_qubit.run_alice_qubits(connection)
+        alice_qubit.run_mock_alice_qubits(connection)
         print(f"Alice qubits sent")
-
+        connection.close()
         return alice_qubit
 
     def setup_role_alice(self, bandwidth_limit_megabytes_per_second=None, inbox_capacity_megabytes=None,
@@ -115,13 +116,14 @@ class QKDAliceImplementation:
         # Setup the connection for the classical communication channel
         # bandwidth_limit_MBps = 100  # Note: in MB/s; multiply by 8 to get Mbps
         mac_configuration = MAC_Config(MAC_Algorithms.CMAC, self._shared_secret_key)
+        #mac_configuration = None
         alice_info = ConnectionInfo(self._ip_address_alice, self._port_number_alice)
         role_alice = Role.get_instance(alice_info, mac_config=mac_configuration,
                                        bandwidth_limit_megabytes_per_second=bandwidth_limit_megabytes_per_second,
                                        inbox_capacity_megabytes=inbox_capacity_megabytes,
                                        outbox_capacity_megabytes=outbox_capacity_megabytes)
 
-        # bob_info = ConnectionInfo(ip_address_bob, port_number_bob)
+        # bob_info = ConnectionInfo(self._ip_address_bob, self._port_number_bob)
         # print(
         #    f"CCC: Role Alice - {alice_info.ip} : {alice_info.port} - is connected to the Role Bob - {bob_info.ip} : {bob_info.port}")
         # role_alice.peer_connection_info = bob_info
@@ -262,7 +264,7 @@ class QKDAliceImplementation:
         correct_key = alice_er.correct_key
 
         if __debug__:
-            print(f"Alice Correct Key Len ({correct_key.get_size()}:\n{correct_key}")
+            print(f"Alice Correct Key Len ({correct_key.get_size()}):\n{correct_key}")
 
         # TODO: Perform Privacy Amplification
         correct_key_list = correct_key.generate_array()

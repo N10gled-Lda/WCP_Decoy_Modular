@@ -7,13 +7,14 @@ from qkd_alice_implementation_class import QKDAliceImplementation
 if __name__ == "__main__":
     ### IP, PORTs, CONNECTIONs ###
     #IP_ADDRESS_ALICE = "0.0.0.0"
-    IP_ADDRESS_ALICE = "10.127.1.117"
+    IP_ADDRESS_ALICE = "10.127.1.124"
     # IP_ADDRESS_ALICE = "127.0.0.2"
     #IP_ADDRESS_BOB = "127.0.0.3"
-    IP_ADDRESS_BOB = "10.127.1.118"
+    IP_ADDRESS_BOB = "10.127.1.125"
     # IP_ADDRESS = "88.157.92.155"
     PORT_NUMBER_ALICE = 5000
     PORT_NUMBER_BOB = 65437
+    #PORT_NUMBER_BOB = 5000
     # PORT_NUMBER_QUANTIC_CHANNEL = 16302
     PORT_NUMBER_QUANTIC_CHANNEL = 13122
     SHARED_SECRET_KEY = b'IzetXlgAnY4oye56'
@@ -62,7 +63,7 @@ if __name__ == "__main__":
                                                                        PORT_NUMBER_BOB, SHARED_SECRET_KEY)
 
         #Pseudo Static value of number of keys to perform and test multi-threading
-        number_of_keys = 1
+        number_of_keys = 3
 
         classical_channel_participant_alice_obj = QKDAliceImplementation(IP_ADDRESS_ALICE, PORT_NUMBER_ALICE, IP_ADDRESS_BOB,
                                                                          PORT_NUMBER_BOB, SHARED_SECRET_KEY)
@@ -90,6 +91,7 @@ if __name__ == "__main__":
                                                                                               privacy_amplification_compression_rate=PA_COMPRESSION_RATE)
             print(f"End Thread {i}\n")
         classical_channel_participant_alice_obj.alice_join_threads()
+        classical_channel_participant_alice_obj._role_alice._stop_all_threads()
         end_execution_time_tick = time.perf_counter()
         print(f"Alice Total Execution Threading Time: {end_execution_time_tick - start_execution_time_tick}")
 

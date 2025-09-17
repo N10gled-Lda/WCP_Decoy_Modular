@@ -11,7 +11,7 @@ from classical_communication_channel.communication_channel.role import Role
 
 # Configure logging
 import logging
-from logging_setup import setup_logger
+from BB84.logging_setup import setup_logger
 # Setup logger
 logger = setup_logger("BB84 Simulation Log", logging.INFO)
 

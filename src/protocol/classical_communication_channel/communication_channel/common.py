@@ -1,6 +1,7 @@
 import logging
 import socket
 from time import perf_counter
+import time
 
 from classical_communication_channel.communication_channel.connection_info import ConnectionInfo
 
@@ -31,7 +32,8 @@ MAC_SIZE_BYTES = 16
 
 BYTES_IN_MEGABYTES = 1 / MEGABYTES_IN_BYTES
 
-MAX_CREATION_TIMESTAMP_AGE_SECONDS = 120  # 2 minutes
+#MAX_CREATION_TIMESTAMP_AGE_SECONDS = 120  # 2 minutes
+MAX_CREATION_TIMESTAMP_AGE_SECONDS = 300  # 5 minutes
 
 
 def create_receive_socket(connection: ConnectionInfo) -> socket:
@@ -64,15 +66,16 @@ def convert_from_bytes_to_int(data: bytes, start_index_inclusive: int = 0) -> in
 
 
 def convert_float_to_bytes(val: float) -> bytes:
-    return convert_int_to_bytes(int(val * FLOAT_TO_INT_FACTOR))
-
+    #return convert_int_to_bytes(int(val * FLOAT_TO_INT_FACTOR))
+    return convert_int_to_bytes(int(val)) # Changed to fix overflow problem of int too big - using different computers.
 
 def convert_from_bytes_to_float(data: bytes) -> float:
-    return convert_from_bytes_to_int(data, 0) * INT_TO_FLOAT_FACTOR
-
+    #return convert_from_bytes_to_int(data, 0) * INT_TO_FLOAT_FACTOR
+    return convert_from_bytes_to_int(data, 0) # Changed to fix overflow problem of int too big - using different computers.
 
 def timestamp():
-    return perf_counter()
+    #return perf_counter()
+    return time.time() # Changed to fix different computers timestamp difference
 
 def wait_synchronously(wait_seconds: float):
     deadline = timestamp() + wait_seconds

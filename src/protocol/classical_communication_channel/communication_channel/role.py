@@ -32,7 +32,8 @@ from datetime import datetime, timedelta
 MAX_PUT_PACKET_TRIES = 5
 PACKET_SEND_TIMEOUT = 0.1
 FRAME_OUTBOX_PACKET_SEND_TIMEOUT = 0.1
-FILL_INBOX_TIMEOUT_SECONDS = 0.1
+#FILL_INBOX_TIMEOUT_SECONDS = 0.1
+FILL_INBOX_TIMEOUT_SECONDS = 20.0
 WAIT_FOR_ALL_THREADS_TO_STOP_SECONDS = 5.0
 WAIT_FOR_INBOX_PACKET_SECONDS = 0.1
 BACKOFF_MAX_SECONDS = 5.0
@@ -469,6 +470,7 @@ class Role(ABC):
                         if len(excess_bytes) >= payload_size + self._authentication_size:
                             payload = excess_bytes[:payload_size + self._authentication_size]
                             extra_bytes = excess_bytes[payload_size + self._authentication_size:]
+                            #Commented for Testing purposes - Should be UNCOMMENTED.
                             self._verify_authentication(complete_header + payload)
                             self._frame_inbox.put(payload)
                             receive_buffer = extra_bytes
