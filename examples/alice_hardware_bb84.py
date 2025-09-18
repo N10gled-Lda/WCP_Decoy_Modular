@@ -14,7 +14,7 @@ import time
 import argparse
 import pickle
 import queue
-import mock
+from unittest import mock
 from enum import Enum
 from typing import List, Tuple, Optional
 from dataclasses import dataclass, field
@@ -30,10 +30,7 @@ logger = setup_logger("Alice Hardware BB84", logging.INFO)
 from src.protocol.classical_communication_channel.communication_channel.connection_info import ConnectionInfo
 from src.protocol.classical_communication_channel.communication_channel.mac_config import MAC_Config, MAC_Algorithms 
 from src.protocol.classical_communication_channel.communication_channel.role import Role
-from src.protocol.ErrorReconciliation.alice_sim import AliceChannel
 from src.protocol.ErrorReconciliation.cascade.key import Key
-from src.protocol.PrivacyAmplification.privacy_amplification import PrivacyAmplification
-from src.protocol.BB84.bb84_protocol.alice_side_thread_ccc import AliceThread
 from src.protocol.qkd_alice_implementation_class import QKDAliceImplementation
 
 # Alice hardware components
@@ -212,7 +209,7 @@ class AliceHardwareQubits:
 
     def _validate_predetermined_sequences(self) -> bool:
         """Validate predetermined sequences if provided."""
-        if self.config.mode != (AliceTestMode.PREDETERMINED or AliceTestMode.RANDOM_BATCH):
+        if self.config.mode not in (AliceTestMode.PREDETERMINED, AliceTestMode.RANDOM_BATCH):
             return True
         
         # Validade predetertermined sequences sizes
@@ -220,12 +217,12 @@ class AliceHardwareQubits:
             self.logger.error("Predetermined mode requires both bits and bases to be specified")
             return False
             
-        if len(self.config.predetermined_bits) != self.config.num_pulses:
-            self.logger.error(f"Predetermined bits length ({len(self.config.predetermined_bits)}) doesn't match num_pulses ({self.config.num_pulses})")
+        if len(self.config.predetermined_bits) != self.config.num_qubits:
+            self.logger.error(f"Predetermined bits length ({len(self.config.predetermined_bits)}) doesn't match num_qubits ({self.config.num_qubits})")
             return False
             
-        if len(self.config.predetermined_bases) != self.config.num_pulses:
-            self.logger.error(f"Predetermined bases length ({len(self.config.predetermined_bases)}) doesn't match num_pulses ({self.config.num_pulses})")
+        if len(self.config.predetermined_bases) != self.config.num_qubits:
+            self.logger.error(f"Predetermined bases length ({len(self.config.predetermined_bases)}) doesn't match num_qubits ({self.config.num_qubits})")
             return False
             
         # Validate values
@@ -268,8 +265,8 @@ class AliceHardwareQubits:
                 self.logger.warning("Random batch mode requires QRNG to be in batch mode")
                 self.qrng.set_mode(OperationMode.BATCH)
             # Get batch of bases and bits before sending
-            self.config.predetermined_bases = self.qrng.get_random_bit(size=self.config.num_pulses)
-            self.config.predetermined_bits = self.qrng.get_random_bit(size=self.config.num_pulses)
+            self.config.predetermined_bases = self.qrng.get_random_bit(size=self.config.num_qubits)
+            self.config.predetermined_bits = self.qrng.get_random_bit(size=self.config.num_qubits)
             self._validate_predetermined_sequences()
             return True
         return True
@@ -329,11 +326,15 @@ class AliceHardwareQubits:
                             self.logger.info("Mock receiver: Stopped")
                             break
                         else:
-                            # Send back data only if handshake marker received
+                            # Send back data only if handshake done
                             if not handshake_done:
                                 continue
                             # Echo strategy: just send bytes back exactly
-                            s.sendall(data)
+                            try:
+                                s.sendall(data)
+                            except (socket.error, ConnectionResetError) as e:
+                                self.logger.error(f"Mock receiver: Error echoing data: {e}")
+                                break
                 self.logger.info(f"Mock receiver exiting. Total echoed bytes={total_bytes}, frames_seen~={frames_seen}")
         except ConnectionRefusedError:
             self.logger.error("Mock receiver could not connect to Alice server (connection refused)")
@@ -377,13 +378,14 @@ class AliceHardwareQubits:
         finally:
             # Send end of qubit transmission marker if connection still open
             try:
-                if connection:
+                if connection and not connection._closed:
                     connection.sendall(self._end_qch_marker.to_bytes(1, 'big'))
-            except Exception as e:
+            except (socket.error, AttributeError, OSError) as e:
                 self.logger.error(f"Error sending end of quantum channel marker: {e}")
 
             self._running = False
-            # TODO: Shutdown hardware components only after all threads are done. Need to change this
+            # TODO: Shutdown hardware components only after all threads are done. Need to change this to a function 
+            # that is called at the end of the main program or when the object is deleted
             self._shutdown_hardware()
 
         # Populate results structure
@@ -413,8 +415,9 @@ class AliceHardwareQubits:
         # TODO: When multiple threads of sending qubits, this can't wait here - set one time before starting all threads
         # !!! Set period of stepmottor for 1ms since the stepmottor wait for this period after sending a single pulse afecting the check availability if high !!!
         try:
-            self.polarization_controller.driver.set_operation_period(1)
-            self.polarization_controller.driver.set_stepper_frequency(500)
+            if (self.use_hardware):
+                self.polarization_controller.driver.set_operation_period(1)
+                self.polarization_controller.driver.set_stepper_frequency(500)
         except Exception as e:
             self.logger.error(f"Error setting polarization hardware parameters (period/frequency): {e}")
             results.errors.append(f"Error setting polarization hardware parameters (period/frequency): {e}")
@@ -549,10 +552,8 @@ class AliceHardwareQubits:
         except KeyboardInterrupt:
             self.logger.info("Hardware test interrupted by user")
             self._running = False
-            self._shutdown_hardware()
         finally:
             self._running = False
-            self._shutdown_hardware()
 
 
         # End of pulse generation thread
@@ -611,75 +612,123 @@ def join_keys(key_list: queue.Queue):
 
 
 def main():
-    """Main function to run Alice's hardware BB84 protocol."""
-    parser = argparse.ArgumentParser(description="Alice's BB84 protocol with hardware control")
-    parser.add_argument("-nth", "--num_threads", type=int, default=2, help="Number of threads")
-    parser.add_argument("-k", "--key_length", type=int, default=2048, help="Length of the key")
-    parser.add_argument("-lr", "--loss_rate", type=float, default=0.0, help="Loss rate for qubits")
-    parser.add_argument("-pp", "--pulse_period", type=float, default=1.0, help="Pulse period in seconds")
-    parser.add_argument("-tf", "--test_fraction", type=float, default=0.1, help="Fraction for testing")
-    parser.add_argument("--use_hardware", action="store_true", help="Use actual hardware")
-    parser.add_argument("--com_port", type=str, default=None, help="COM port for polarization")
-    parser.add_argument("--laser_channel", type=int, default=8, help="Laser channel")
-    
-    args = parser.parse_args()
+
+    # Default global values for parameters
+    NUM_THREADS = 1
+    KEY_LENGTH = 10
+    LOSS_RATE = 0.0
+    PULSE_PERIOD = 1.0  # seconds
+    TEST_FRACTION = 0.1
+    USE_HARDWARE = False
+    COM_PORT = "COM4"
+    LASER_CHANNEL = 8
+    USE_MOCK_RECEIVER = True
 
     # Network configuration
     IP_ADDRESS_ALICE = "localhost"
-    IP_ADDRESS_BOB = "localhost"
+    IP_ADDRESS_BOB = "localhost" 
     # IP_ADDRESS_ALICE = "127.0.0.1"
     # IP_ADDRESS_BOB = "127.0.0.2"
     PORT_NUMBER_ALICE = 65432
     PORT_NUMBER_BOB = 65433
-    PORT_NUMBER_QUANTIC_CHANNEL = 12345
-    SHARED_SECRET_KEY = b'IzetXlgAnY4oye56'
+    PORT_NUMBER_QUANTUM_CHANNEL = 12345
+    SHARED_SECRET_KEY = "IzetXlgAnY4oye56"  # 16 bytes for AES-128
+
+
+    """Main function to run Alice's hardware BB84 protocol."""
+    parser = argparse.ArgumentParser(description="Alice's BB84 protocol with hardware control")
+    parser.add_argument("-nth", "--num_threads", type=int, default=NUM_THREADS, help="Number of threads")
+    parser.add_argument("-k", "--key_length", type=int, default=KEY_LENGTH, help="Length of the key")
+    parser.add_argument("-lr", "--loss_rate", type=float, default=LOSS_RATE, help="Loss rate for qubits")
+    parser.add_argument("-pp", "--pulse_period", type=float, default=PULSE_PERIOD, help="Pulse period in seconds")
+    parser.add_argument("-tf", "--test_fraction", type=float, default=TEST_FRACTION, help="Fraction for testing")
+    parser.add_argument("--use_hardware", action="store_true", default=USE_HARDWARE, help="Use actual hardware")
+    parser.add_argument("--com_port", type=str, default=COM_PORT, help="COM port for polarization")
+    parser.add_argument("--laser_channel", type=int, default=LASER_CHANNEL, help="Laser channel")
+    parser.add_argument("--use_mock_receiver", action="store_true", default=USE_MOCK_RECEIVER, help="Use mock Bob receiver for testing")
+    parser.add_argument("--ip_address_alice", type=str, default=IP_ADDRESS_ALICE, help="IP address for Alice")
+    parser.add_argument("--ip_address_bob", type=str, default=IP_ADDRESS_BOB, help="IP address for Bob")
+    parser.add_argument("--port_number_alice", type=int, default=PORT_NUMBER_ALICE, help="Port number for Alice")
+    parser.add_argument("--port_number_bob", type=int, default=PORT_NUMBER_BOB, help="Port number for Bob")
+    parser.add_argument("--port_number_quantum_channel", type=int, default=PORT_NUMBER_QUANTUM_CHANNEL, help="Port number for quantum channel")
+    parser.add_argument("--shared_secret_key", type=str, default=SHARED_SECRET_KEY, help="Shared secret key for MAC")
+
+
+
     
+    args = parser.parse_args()
+
     # BB84 protocol parameters
     key_length = args.key_length
     nb_threads = args.num_threads
-    
+    loss_rate = args.loss_rate
+    pulse_period = args.pulse_period
+    test_fraction = args.test_fraction
+    use_hardware = args.use_hardware
+    com_port = args.com_port
+    laser_channel = args.laser_channel
+    use_mock_receiver = args.use_mock_receiver
+    if use_hardware and (com_port is None or laser_channel is None):
+        parser.error("When using hardware, both --com_port and --laser_channel must be specified")
+        
+    # Network configuration
+    ip_address_alice = args.ip_address_alice
+    ip_address_bob = args.ip_address_bob
+    # ip_address_alice = "127.0.0.1"
+    # ip_address_bob = "127.0.0.2"
+    port_number_alice = args.port_number_alice
+    port_number_bob = args.port_number_bob
+    port_number_quantum_channel = args.port_number_quantum_channel
+    shared_secret_key = bytes(args.shared_secret_key, 'utf-8')
+
     # Privacy Amplification parameters
-    PA_COMPRESSION_RATE = 0.5
-    KEY_QUEUE = queue.Queue()
+    pa_compression_rate = 0.5
+    key_queue = queue.Queue()
     
     # Classical communication setup
-    mac_configuration = MAC_Config(MAC_Algorithms.CMAC, SHARED_SECRET_KEY)
-    alice_info = ConnectionInfo(IP_ADDRESS_ALICE, PORT_NUMBER_ALICE)
+    mac_configuration = MAC_Config(MAC_Algorithms.CMAC, shared_secret_key)
+    alice_info = ConnectionInfo(ip_address_alice, port_number_alice)
     role_alice = Role.get_instance(alice_info)
-    bob_info = ConnectionInfo(IP_ADDRESS_BOB, PORT_NUMBER_BOB)
+    bob_info = ConnectionInfo(ip_address_bob, port_number_bob)
 
     logger.info(f"Alice {alice_info.ip}:{alice_info.port} connecting to Bob {bob_info.ip}:{bob_info.port}")
     
     try:
         # Setup quantum channel server
-        server = AliceHardwareQubits.setup_server(IP_ADDRESS_ALICE, PORT_NUMBER_QUANTIC_CHANNEL)
+        logger.info("Setting up quantum channel server...")
+        server = AliceHardwareQubits.setup_server(ip_address_alice, port_number_quantum_channel)
+        logger.info(f"Quantum channel server listening on {ip_address_alice}:{port_number_quantum_channel}")
+        logger.info("Waiting for Bob to connect... (Use --help to see mock receiver option)")
+ 
+        # Configure hardware Alice for this thread
+        hardware_config = HardwareAliceConfig(
+            num_qubits=key_length,
+            pulse_period_seconds=pulse_period,
+            use_hardware=use_hardware,
+            com_port=com_port,
+            laser_channel=laser_channel,
+            test_fraction=test_fraction,
+            loss_rate=loss_rate,
+            use_mock_receiver=use_mock_receiver,
+            server_host=ip_address_alice,
+            server_port=port_number_quantum_channel,
+        )
+
+        # Create instance hardware/quantum part of Alice
+        # TODO: I thinkg the mock receiver will not work since it will get stuck in the setup_server ???
+        alice_hardware = AliceHardwareQubits(hardware_config)
+        if hardware_config.use_mock_receiver:
+            logger.info("Launching mock receiver (echo) client for local testing...")
+            alice_hardware.setup_mock_receiver()
+        
         connection, address = server.accept()
         logger.info(f"Quantum channel connected to {address}")
         
         with connection:
- 
-            # Configure hardware Alice for this thread
-            hardware_config = HardwareAliceConfig(
-                num_qubits=key_length,
-                pulse_period_seconds=args.pulse_period,
-                use_hardware=args.use_hardware,
-                com_port=args.com_port,
-                laser_channel=args.laser_channel,
-                test_fraction=args.test_fraction,
-                loss_rate=args.loss_rate,
-                server_host=IP_ADDRESS_ALICE,
-                server_port=PORT_NUMBER_QUANTIC_CHANNEL,
-            )
-
-            # Create instance hardware/quantum part of Alice
-            alice_hardware = AliceHardwareQubits(hardware_config)
-            if hardware_config.use_mock_receiver:
-                logger.info("Launching mock receiver (echo) client for local testing...")
-                alice_hardware.setup_mock_receiver()
 
             # Create instance of the quantum channel participant Alice for post-processing
-            classical_channel_participant_alice_obj = QKDAliceImplementation(IP_ADDRESS_ALICE, PORT_NUMBER_ALICE, IP_ADDRESS_BOB,
-                                                                         PORT_NUMBER_BOB, SHARED_SECRET_KEY)
+            classical_channel_participant_alice_obj = QKDAliceImplementation(ip_address_alice, port_number_alice, ip_address_bob,
+                                                                         port_number_bob, shared_secret_key)
             # Setup role Alice
             classical_channel_participant_alice_obj.setup_role_alice()
             classical_channel_participant_alice_obj.start_read_communication_channel()
@@ -687,7 +736,8 @@ def main():
             start_execution_time_tick = time.perf_counter()
 
             # Function to run hardware-based BB84 protocol for each thread
-            # TODO: Modify to instead of threads simply have a loop that runs sequentially since the quantum part only advances when done and the classical part creates its own threads
+            # NOTE: Multiple threads share the same quantum connection, so they run sequentially
+            # The quantum part only advances when done and the classical part creates its own threads
             def run_all_hardware_pp_thread(start_event: threading.Event, thread_id: int):
                 logger.info(f"Alice Thread {thread_id} - starting hardware BB84")
                 
@@ -703,12 +753,12 @@ def main():
                     logger.info(f"Alice Thread {thread_id} - starting classical post-processing thread")
                     classical_channel_participant_alice_obj.alice_run_qkd_classical_process_threading(results_ith.bits,
                                                                                               results_ith.bases,
-                                                                                              do_test=True, test_fraction=args.test_fraction,
+                                                                                              do_test=True, test_fraction=test_fraction,
                                                                                               error_threshold=0.1,
-                                                                                              privacy_amplification_compression_rate=PA_COMPRESSION_RATE)
+                                                                                              privacy_amplification_compression_rate=pa_compression_rate)
                     
                     # logger.info(f"Alice Thread {thread_id} - ER complete: key length {classical_channel_participant_alice_obj.correct_key.get_size()}")
-                    # KEY_QUEUE.put(correct_key)
+                    # key_queue.put(correct_key)
                     
                 except Exception as e:
                     logger.error(f"Alice Thread {thread_id} - Error: {e}")
