@@ -13,7 +13,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from examples.logging_setup import setup_logger
-from examples.alice_hardware_bb84 import AliceHardwareQubits, AliceTestMode, HardwareAliceConfig
+from examples.alice_qch_pp import AliceHardwareQubits, AliceTestMode, HardwareAliceConfig
 
 # Setup logger
 logger = setup_logger("Alice Hardware Demo", logging.INFO)
