@@ -1,12 +1,10 @@
-import sys
 import numpy as np
 import time
 
 from scipy.linalg import toeplitz, matmul_toeplitz
-sys.path.append("..")
 
 
-from ErrorReconciliation.cascade.key import Key
+from ..ErrorReconciliation.cascade.key import Key
 import random
 
 

@@ -1,11 +1,11 @@
-from classical_communication_channel.communication_channel.connection_info import ConnectionInfo
-from classical_communication_channel.communication_channel.mac_config import MAC_Config, MAC_Algorithms
-from classical_communication_channel.communication_channel.role import Role
-from ErrorReconciliation.alice_sim import AliceChannel
-from ErrorReconciliation.cascade.key import Key
-from PrivacyAmplification.privacy_amplification import PrivacyAmplification
+from .classical_communication_channel.communication_channel.connection_info import ConnectionInfo
+from .classical_communication_channel.communication_channel.mac_config import MAC_Config, MAC_Algorithms
+from .classical_communication_channel.communication_channel.role import Role
+from .ErrorReconciliation.alice_sim import AliceChannel
+from .ErrorReconciliation.cascade.key import Key
+from .PrivacyAmplification.privacy_amplification import PrivacyAmplification
 
-from BB84.bb84_protocol.alice_side_thread_ccc import AliceQubits, AliceThread
+from .BB84.bb84_protocol.alice_side_thread_ccc import AliceQubits, AliceThread
 # from bb84_protocol.alice_side_thread_ccc import read
 
 import queue

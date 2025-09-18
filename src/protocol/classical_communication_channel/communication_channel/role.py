@@ -9,23 +9,20 @@ from abc import ABC, abstractmethod
 from math import ceil
 from time import sleep
 
-
-from mock import Mock
+from unittest.mock import Mock
 
 from cryptography.exceptions import InvalidSignature
 
-import sys
-sys.path.append('classical_communication_channel')
-from classical_communication_channel.communication_channel.byte_queue import ByteQueue
-from classical_communication_channel.communication_channel.common import (create_connect_socket, create_receive_socket, timestamp, MAC_SIZE_BYTES, \
-                                          MAX_CREATION_TIMESTAMP_AGE_SECONDS, convert_int_to_bytes,
-                                          convert_float_to_bytes,
-                                          TIMESTAMP_SIZE_BYTES, convert_from_bytes_to_int, \
-                                          MEGABYTES_IN_BYTES, convert_from_bytes_to_float)
-from classical_communication_channel.communication_channel.connection_info import ConnectionInfo
-from classical_communication_channel.communication_channel.exception.peer_has_role import RoleAlreadyHasPeerException
-from classical_communication_channel.communication_channel.exception.role_has_no_peer import RoleHasNoPeerException
-from classical_communication_channel.communication_channel.mac_config import MAC_Config
+from .byte_queue import ByteQueue
+from .common import (create_connect_socket, create_receive_socket, timestamp, MAC_SIZE_BYTES,
+                     MAX_CREATION_TIMESTAMP_AGE_SECONDS, convert_int_to_bytes,
+                     convert_float_to_bytes,
+                     TIMESTAMP_SIZE_BYTES, convert_from_bytes_to_int,
+                     MEGABYTES_IN_BYTES, convert_from_bytes_to_float)
+from .connection_info import ConnectionInfo
+from .exception.peer_has_role import RoleAlreadyHasPeerException
+from .exception.role_has_no_peer import RoleHasNoPeerException
+from .mac_config import MAC_Config
 
 from datetime import datetime, timedelta
 

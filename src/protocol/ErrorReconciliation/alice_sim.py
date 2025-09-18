@@ -5,25 +5,23 @@ import sys
 import time
 from os import access
 
-from PrivacyAmplification.privacy_amplification import PrivacyAmplification
 
+from ..PrivacyAmplification.privacy_amplification import PrivacyAmplification
 #from multiprocessing.connection import Connection
 
 #from matplotlib.backends.backend_nbagg import connection_info
 
-sys.path.append("..")
-
-#from Classical_Communication_Channel.communication_channel.channel_manager import ChannelManager
-from classical_communication_channel.communication_channel.connection_info import ConnectionInfo
-#from Classical_Communication_Channel.communication_channel.common import generate_connection_info
-#from Classical_Communication_Channel.communication_channel.participant import Participant
-from classical_communication_channel.communication_channel.role import Role
-#from Classical_Communication_Channel.communication_channel.classical_communication_packet import OutboxPacket
-from classical_communication_channel.communication_channel.mac_config import MAC_Config, MAC_Algorithms
+#from classical_communication_channel.communication_channel.channel_manager import ChannelManager
+from ..classical_communication_channel.communication_channel.connection_info import ConnectionInfo
+#from classical_communication_channel.communication_channel.common import generate_connection_info
+#from classical_communication_channel.communication_channel.participant import Participant
+from ..classical_communication_channel.communication_channel.role import Role
+#from classical_communication_channel.communication_channel.classical_communication_packet import OutboxPacket
+from ..classical_communication_channel.communication_channel.mac_config import MAC_Config, MAC_Algorithms
 
 
 #from cascade.algorithm import ALGORITHMS
-from ErrorReconciliation.cascade.key import Key
+from .cascade.key import Key
 #from cascade.mock_classical_channel import MockClassicalChannel
 #import threading
 from collections import deque
