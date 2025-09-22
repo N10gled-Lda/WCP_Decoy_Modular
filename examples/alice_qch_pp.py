@@ -445,7 +445,7 @@ class AliceHardwareQubits:
             
             start_time = time.time()
             # Calculate laser fire time: 90% through each period for consistent timing
-            laser_fire_fraction = 0.9  # Fire laser at 90% of period
+            laser_fire_fraction = 0.8  # Fire laser at 90% of period
 
             # TODO: Confirm laser fire timing is correct at 90% of the period intervalled
             for pulse_id in range(self.num_qubits):
@@ -523,9 +523,11 @@ class AliceHardwareQubits:
                 remaining_time = next_pulse_start - current_time
                 
                 if remaining_time > 0:
-                    print(f"--------------------------> DEBUG: Waiting {remaining_time:.3f}s for next pulse period")
-                    self.logger.debug(f"Waiting {remaining_time:.3f}s for next pulse period")
+                    print(f"--------------------------> DEBUG: Waiting {remaining_time:.3f}s for next pulse period, Fired at {laser_send_time - start_time:.3f}, Target was {target_laser_time- start_time:.3f}")
+                    self.logger.debug(f"Waiting {remaining_time:.3f}s for next pulse period, Fired at {laser_send_time - start_time:.3f}, Target was {target_laser_time- start_time:.3f}")
                     time.sleep(remaining_time)
+                elif remaining_time < -0.05:  # More than 50ms late
+                    self.logger.warning(f" Pulse {pulse_id} is {-remaining_time:.3f}s late for just a little late.")
                 else:
                     total_pulse_time = current_time - pulse_start_time
                     self.logger.warning(f" ⚠️ Pulse {pulse_id} exceeded period: {total_pulse_time:.3f}s > {self.config.pulse_period_seconds}s")
@@ -615,11 +617,11 @@ def main():
 
     # Default global values for parameters
     NUM_THREADS = 1
-    KEY_LENGTH = 10
+    KEY_LENGTH = 5
     LOSS_RATE = 0.0
     PULSE_PERIOD = 1.0  # seconds
     TEST_FRACTION = 0.1
-    USE_HARDWARE = False
+    USE_HARDWARE = True
     COM_PORT = "COM4"
     LASER_CHANNEL = 8
     USE_MOCK_RECEIVER = True

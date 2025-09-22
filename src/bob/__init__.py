@@ -1,6 +1,6 @@
 """Bob's components."""
 # Core CPU
-from .bobCPU import BobCPU, BobConfig, BobMode, BobStatistics, BobData
+from .bobCPU_general import BobCPU, BobConfig, BobMode, BobStatistics, BobData
 
 # Optical table components
 from .ot_components import (
@@ -10,7 +10,7 @@ from .ot_components import (
 )
 
 # Simple components
-from .simple_bob_cpu import SimpleBobCPU, SimpleBobConfig, SimpleBobMode, SimpleBobStatistics, SimpleBobData
+from .bob_cpu import SimpleBobCPU, SimpleBobConfig, SimpleBobMode, SimpleBobStatistics, SimpleBobData
 from .ot_components.simple_optical_table import SimpleOpticalTable, SimpleOpticalConfig, SimpleDetectorId
 from .ot_components.simple_detectors import SimpleDetectorSystem, SimpleDetectorConfig
 

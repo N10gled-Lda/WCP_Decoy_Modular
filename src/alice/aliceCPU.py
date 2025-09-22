@@ -4,9 +4,10 @@ Alice's main controller for QKD transmission.
 import logging
 import time
 import threading
+import socket
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Tuple, Union
 from queue import Queue, Empty
 import numpy as np
 import sys
@@ -25,49 +26,112 @@ from src.alice.polarization.polarization_controller import PolarizationControlle
 from src.alice.polarization.polarization_simulator import PolarizationSimulator
 from src.alice.polarization.polarization_hardware import PolarizationHardware
 
+# Protocol imports for classical communication and post-processing
+from src.protocol.qkd_alice_implementation_class import QKDAliceImplementation
 
 class AliceMode(Enum):
-    """Operation modes for Alice CPU."""
-    BATCH = "batch"          # Pre-generate all random bits before starting
-    STREAMING = "streaming"  # Generate bits on-demand during transmission
-    # PREDERTERMINED = "predetermined"  # Use pre-set sequences (not implemented)
+    """Test modes for Alice hardware.
+        - RANDOM_STREAM: Generate random bits using QRNG bit by bit
+        - RANDOM_BATCH: Generate random bits in batch using QRNG all before
+        - SEEDED: Generate bits using a fixed seed using QRNG
+        - PREDETERMINED: Use pre-defined sequence
+    """
+    RANDOM_STREAM = "random_stream"     # Generate random bits using QRNG bit by bit
+    RANDOM_BATCH = "random_batch"       # Generate random bits in batch using QRNG all before
+    SEEDED = "seeded"                   # Generate bits using a fixed seed using QRNG
+    PREDETERMINED = "predetermined"     # Use pre-defined sequence
+
+
+# Default global values for parameters
+NUM_THREADS = 1
+KEY_LENGTH = 5
+LOSS_RATE = 0.0
+PULSE_PERIOD = 1.0  # seconds
+TEST_FRACTION = 0.1
+ERROR_THRESHOLD = 0.11  # Max tolerable QBER
+USE_HARDWARE = True
+COM_PORT = "COM4"
+LASER_CHANNEL = 8
+USE_MOCK_RECEIVER = True
+ALICEMODE = AliceMode.RANDOM_STREAM
+QRNG_SEED = 40
+# Network configuration defaults
+IP_ADDRESS_ALICE = "localhost"
+IP_ADDRESS_BOB = "localhost" 
+# IP_ADDRESS_ALICE = "127.0.0.1"
+# IP_ADDRESS_BOB = "127.0.0.2"
+PORT_NUMBER_ALICE = 65432
+PORT_NUMBER_BOB = 65433
+PORT_NUMBER_QUANTUM_CHANNEL = 12345
+SHARED_SECRET_KEY = "IzetXlgAnY4oye56"  # 16 bytes for AES-128
 
 
 @dataclass
 class AliceConfig:
     """Configuration for Alice CPU."""
-    num_pulses: int = 1000
+    # Quantum transmission parameters
+    # Protocol parameters
+    num_pulses: int = 10
     pulse_period_seconds: float = 1.0
+    test_fraction: float = 0.1
+    error_threshold: float = 0.11  # Max tolerable QBER
+    loss_rate: float = 0.0
+
+    # Hardware parameters
     use_hardware: bool = False
     com_port: Optional[str] = None  # For polarization hardware
     laser_channel: Optional[int] = None  # For hardware laser
     qrng_seed: Optional[int] = None
-    mode: AliceMode = AliceMode.STREAMING
-    laser_repetition_rate_hz: float = 1000000  # 1 MHz for hardware laser
+    mode: AliceMode = AliceMode.RANDOM_STREAM
+    # Predetermined sequences (only used if mode=PREDETERMINED); 
+    # must be of the size of num_pulses
+    predetermined_bits: Optional[List[int]] = None
+    predetermined_bases: Optional[List[int]] = None
+    # Information about the laser (for simulators)
     laser_info: LaserInfo = field(default_factory=LaserInfo) # For simulated laser
-
+    
+    # Network configuration for quantum channel
+    use_mock_receiver: bool = False  # For testing without actual Bob
+    server_qch_host: str = "localhost"
+    server_qch_port: int = 12345
+    
+    # Classical communication configuration
+    alice_ip: str = "localhost"
+    alice_port: int = 65432
+    bob_ip: str = "localhost"
+    bob_port: int = 65433
+    shared_secret_key: str = "IzetXlgAnY4oye56"  # 16 bytes for AES-128
+    
+    
+    # Multi-threading parameters
+    num_threads: int = 1
+    
+    # Post-processing parameters
+    enable_post_processing: bool = True
+    pa_compression_rate: float = 0.5
 
 @dataclass
-class AliceStats:
-    """Statistics for Alice's operation."""
-    pulses_sent: int = 0
-    total_runtime_seconds: float = 0.0
-    average_pulse_rate_hz: float = 0.0
+class AliceResults:
+    """Comprehensive results from Alice's QKD operation."""
+    # Quantum data
+    bits: List[Bit] = field(default_factory=list)
+    bases: List[Basis] = field(default_factory=list)
+    polarization_angles: List[float] = field(default_factory=list)
+    pulse_ids: List[int] = field(default_factory=list)
+    
+    # Timing data
+    pulse_timestamps: List[float] = field(default_factory=list)
     rotation_times: List[float] = field(default_factory=list)
     wait_times: List[float] = field(default_factory=list)  # Time waiting for polarization readiness
     laser_times: List[float] = field(default_factory=list)
+    
+    # Statistics
+    pulses_sent: int = 0
+    total_runtime_seconds: float = 0.0
+    average_pulse_rate_hz: float = 0.0
+    
+    # Error tracking
     errors: List[str] = field(default_factory=list)
-
-
-@dataclass
-class TransmissionData:
-    """Data collected during transmission."""
-    pulse_times: List[float] = field(default_factory=list)
-    pulses: List[Pulse] = field(default_factory=list)
-    bases: List[Basis] = field(default_factory=list)
-    bits: List[Bit] = field(default_factory=list)
-    polarization_angles: List[float] = field(default_factory=list)
-    pulse_ids: List[int] = field(default_factory=list)
 
 
 class AliceCPU:
@@ -86,24 +150,75 @@ class AliceCPU:
         Args:
             config: Configuration parameters for Alice's operation
         """
-        self.config = config
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self.config = config
+
+        # Configuration parameters
+        # Protocol parameters
+        self.num_pulses = self.config.num_pulses
+        self.pulse_period_seconds = self.config.pulse_period_seconds
+        self.test_fraction = self.config.test_fraction
+        self.error_threshold = self.config.error_threshold
+        self.loss_rate = self.config.loss_rate
+
+        # Hardware parameters
+        self.use_hardware = self.config.use_hardware
+        self.com_port = self.config.com_port
+        self.laser_channel = self.config.laser_channel
+        self.qrng_seed = self.config.qrng_seed
+        self.mode = self.config.mode
+
+        # Simulation parameters
+        self.laser_info = self.config.laser_info
+
+        # Predetermined sequences
+        self.predetermined_bits = self.config.predetermined_bits
+        self.predetermined_bases = self.config.predetermined_bases
+
+        # Server configuration for quantum channel
+        self.use_mock_receiver = self.config.use_mock_receiver
+        self.mock_thread = None
+        self.mock_thread_stop_event = None
+        self.server_qch_host = self.config.server_qch_host
+        self.server_qch_port = self.config.server_qch_port
+
+        # Classical communication configuration
+        self.alice_ip = self.config.alice_ip
+        self.alice_port = self.config.alice_port
+        self.bob_ip = self.config.bob_ip
+        self.bob_port = self.config.bob_port
+        self.shared_secret_key = bytes(self.config.shared_secret_key, 'utf-8')
+
+        # Post-processing configuration
+        self.enable_post_processing = self.config.enable_post_processing
+        self.pa_compression_rate = self.config.pa_compression_rate
+        self.num_threads = self.config.num_threads
+
+        # Classical communication objects (initialized later)
+        self.classical_channel_participant_for_pp: Optional[QKDAliceImplementation] = None
+        self.quantum_server: Optional[socket.socket] = None
+        self.quantum_connection: Optional[socket.socket] = None
+
+        # Protocol markers
+        self._handshake_marker = 100
+        self._handshake_end_marker = 50
+        self._acknowledge_marker = 150
+        self._not_ready_marker = 200
+        self._end_qch_marker = 250
         
         # System state
-        self.stats = AliceStats()
-        self.transmission_data = TransmissionData()
+        self.results = AliceResults()
+
         self._running = False
-        self._paused = False
         self._shutdown_event = threading.Event()
-        self._pause_event = threading.Event()
         
         # Pre-generated random bits for batch mode
-        self._batch_bases: List[Basis] = []
-        self._batch_bits: List[Bit] = []
-        self._batch_index = 0
+        self.batch_bases: List[Basis] = []
+        self.batch_bits: List[Bit] = []
+        self.batch_index = 0
         
         # Threading
-        self._transmission_thread: Optional[threading.Thread] = None
+        self._transmission_thread: Optional[threading.Thread] = None # Needed???
         self._pulse_queue = Queue()
         self._polarized_pulses_queue = Queue()
         
@@ -114,37 +229,64 @@ class AliceCPU:
 
     def _initialize_components(self) -> None:
         """Initialize all Alice-side components."""
+        self.logger.info("Initializing Alice hardware components...")
         
         # Initialize QRNG
         self.qrng = QRNGSimulator(
-            seed=self.config.qrng_seed,
-            mode=OperationMode.STREAMING if self.config.mode == AliceMode.STREAMING else OperationMode.BATCH
+            seed=self.qrng_seed,
+            mode=OperationMode.STREAMING if self.mode == AliceMode.RANDOM_STREAM else
+                 OperationMode.BATCH if self.mode == AliceMode.RANDOM_BATCH else
+                 OperationMode.DETERMINISTIC if self.mode == AliceMode.SEEDED else
+                 None  # None for predetermined mode
         )
         
         # Initialize Laser Controller
-        if self.config.use_hardware:
+        if self.use_hardware and self.laser_channel is not None:
             laser_driver = DigitalHardwareLaserDriver(
-                digital_channel=self.config.laser_channel
+                digital_channel=self.laser_channel
             )
+            self.logger.info(f"Using hardware laser driver on channel {self.laser_channel}")
         else:
-            laser_driver = SimulatedLaserDriver(pulses_queue=self._pulse_queue, laser_info=self.config.laser_info)
+            laser_driver = SimulatedLaserDriver(pulses_queue=self._pulse_queue, laser_info=self.laser_info)
+            self.logger.info("Using simulated laser driver")
 
         self.laser_controller = LaserController(laser_driver)
         
         # Initialize Polarization Controller
-        if self.config.use_hardware:
-            if self.config.com_port is None:
-                raise ValueError("COM port must be specified for hardware polarization control")
-            pol_driver = PolarizationHardware(com_port=self.config.com_port,)
-            # Note: COM port initialization should be handled within the hardware driver
+        if self.use_hardware:
+            if self.com_port is None:
+                raise ValueError("COM port must be specified for polarization hardware")
+            pol_driver = PolarizationHardware(com_port=self.com_port)
+            self.logger.info(f"Using hardware polarization driver on COM port {self.com_port}")
         else:
-            pol_driver = PolarizationSimulator(pulses_queue=self._pulse_queue, polarized_pulses_queue=self._polarized_pulses_queue, laser_info=self.config.laser_info)
+            pol_driver = PolarizationSimulator(pulses_queue=self._pulse_queue, polarized_pulses_queue=self._polarized_pulses_queue, laser_info=self.laser_info)
+            self.logger.info("Using simulated polarization driver")
 
         self.polarization_controller = PolarizationController(
             driver=pol_driver,
             qrng_driver=self.qrng
         )
         
+        # Initialize controllers if not initialized
+        if not self.laser_controller.initialize():
+            raise RuntimeError("Failed to initialize laser controller")
+
+        if not self.polarization_controller.initialize():
+            raise RuntimeError("Failed to initialize polarization controller")
+
+
+        # TODO: Check in the future if this still happens a period after last pulse
+        # Set polarization controller period to 1ms to avoid delays when sending one by one
+        try:
+            if (self.use_hardware):
+                self.polarization_controller.driver.set_operation_period(1)
+                self.polarization_controller.driver.set_stepper_frequency(500)
+        except Exception as e:
+            self.logger.error(f"Error setting polarization hardware parameters (period/frequency): {e}")
+            self.results.errors.append(f"Error setting polarization hardware parameters (period/frequency): {e}")
+            raise e
+
+
         self.logger.info("All components initialized successfully")
 
     def initialize_system(self) -> bool:
@@ -164,258 +306,501 @@ class AliceCPU:
             if not self.polarization_controller.initialize():
                 self.logger.error("Failed to initialize polarization controller")
                 return False
-            
-            # Pre-generate random bits for batch mode
-            if self.config.mode == AliceMode.BATCH:
-                self._generate_batch_random_bits()
 
-            # TODO: Check in the future if this still happens a period after last pulse
-            # Set polarization controller period to 1ms to avoid delays when sending one by one
-            self.polarization_controller.driver.set_operation_period(1)
-            
+            # Validate predetermined sequences
+            if not self._validate_seeded_mode():
+                raise ValueError("Invalid seeded mode")
+            if not self._validate_random_modes():
+                raise ValueError("Invalid random modes")
+            if not self._validate_predetermined_sequences():
+                raise ValueError("Invalid predetermined sequences")
+                        
             self.logger.info("Alice system initialized successfully")
             return True
             
         except Exception as e:
             self.logger.error(f"Failed to initialize Alice system: {e}")
-            self.stats.errors.append(f"Initialization error: {e}")
+            self.results.errors.append(f"Initialization error: {e}")
             return False
 
-    def _generate_batch_random_bits(self) -> None:
-        """Pre-generate all random bits for batch mode."""
-        self.logger.info(f"Generating {self.config.num_pulses} random bits for batch mode")
-        
-        # Generate basis choices (Z or X)
-        basis_bits = self.qrng.get_random_bit(size=self.config.num_pulses)
-        self._batch_bases = [Basis.Z if bit == 0 else Basis.X for bit in basis_bits]
-        
-        # Generate bit values (0 or 1)
-        bit_values = self.qrng.get_random_bit(size=self.config.num_pulses)
-        self._batch_bits = [Bit(bit) for bit in bit_values]
-        
-        self.logger.info("Batch random bits generated successfully")
+    def _validate_predetermined_sequences(self) -> bool:
+        """Validate predetermined sequences if provided."""
+        if self.mode not in (AliceMode.PREDETERMINED, AliceMode.RANDOM_BATCH):
+            return True
 
-    def start_transmission(self) -> bool:
+        # Validate predetermined sequences sizes
+        if self.predetermined_bits is None or self.predetermined_bases is None:
+            self.logger.error("Predetermined mode requires both bits and bases to be specified")
+            return False
+            
+        if len(self.predetermined_bits) != self.num_pulses:
+            self.logger.error(f"Predetermined bits length ({len(self.predetermined_bits)}) doesn't match num_pulses ({self.num_pulses})")
+            return False
+            
+        if len(self.predetermined_bases) != self.num_pulses:
+            self.logger.error(f"Predetermined bases length ({len(self.predetermined_bases)}) doesn't match num_pulses ({self.num_pulses})")
+            return False
+            
+        # Validate values
+        for i, bit in enumerate(self.predetermined_bits):
+            if bit not in [0, 1]:
+                self.logger.error(f"Invalid bit value at index {i}: {bit} (must be 0 or 1)")
+                return False
+                
+        for i, basis in enumerate(self.predetermined_bases):
+            if basis not in [0, 1]:
+                self.logger.error(f"Invalid basis value at index {i}: {basis} (must be 0 or 1)")
+                return False
+
+        self.logger.debug("Predetermined sequences validated successfully: %s", self.predetermined_bits)
+
+        return True
+
+    def _validate_seeded_mode(self) -> bool:
+        """Validate seeded mode if specified."""
+        if self.mode != AliceMode.SEEDED:
+            return True
+        if self.qrng.get_mode() != OperationMode.DETERMINISTIC:
+            self.logger.warning("Seeded mode requires QRNG to be in deterministic mode")
+            self.qrng.set_mode(OperationMode.DETERMINISTIC)
+            return True
+        if self.qrng_seed is None:
+            self.logger.error("Seeded mode requires a seed to be specified")
+            return False
+        return True
+    
+    def _validate_random_modes(self) -> bool:
+        """Validate random modes if specified."""
+        if self.mode == AliceMode.RANDOM_STREAM:
+            if self.qrng.get_mode() != OperationMode.STREAMING:
+                self.logger.warning("Random stream mode requires QRNG to be in streaming mode")
+                self.qrng.set_mode(OperationMode.STREAMING)
+                return True
+        if self.mode == AliceMode.RANDOM_BATCH:
+            if self.qrng.get_mode() != OperationMode.BATCH:
+                self.logger.warning("Random batch mode requires QRNG to be in batch mode")
+                self.qrng.set_mode(OperationMode.BATCH)
+            # Get batch of bases and bits before sending
+            self.predetermined_bases = self.qrng.get_random_bit(size=self.num_pulses)
+            self.predetermined_bits = self.qrng.get_random_bit(size=self.num_pulses)
+            self._validate_predetermined_sequences()
+            return True
+        return True
+    
+    # ===============================
+    # Network and Communication Setup
+    # ===============================
+    
+    @staticmethod
+    def setup_quantum_channel_server(host: str, port: int, timeout: float = 10.0) -> socket.socket:
+        """Setup server socket for quantum channel."""
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.settimeout(timeout)
+        server.bind((host, port))
+        server.listen(1)
+        return server
+
+    def setup_classical_communication(self) -> bool:
+        """Setup classical communication channel. Creates the QKDAliceImplementation instance, and starts the communication thread (alice role)."""
+        try:
+            self.classical_channel_participant_for_pp = QKDAliceImplementation(
+                self.alice_ip, self.alice_port, 
+                self.bob_ip, self.bob_port, 
+                self.shared_secret_key
+            )
+            self.classical_channel_participant_for_pp.setup_role_alice()
+            self.classical_channel_participant_for_pp.start_read_communication_channel()
+            self.logger.info("Classical communication channel setup completed")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to setup classical communication: {e}")
+            return False
+
+    def setup_mock_receiver(self) -> None:
+        """Setup mock receiver for testing."""
+        if not self.use_mock_receiver:
+            raise RuntimeError("Mock receiver not enabled in configuration")
+        
+        self.mock_thread_stop_event = threading.Event()
+        self.mock_thread = threading.Thread(
+            target=self._mock_receiver_client, 
+            name="MockBobEcho", 
+            daemon=True
+        )
+        self.mock_thread.start()
+        self.logger.info("Mock receiver started")
+
+    def _mock_receiver_client(self) -> None:
+        """Mock receiver client that echoes received data."""
+        try:
+            with socket.create_connection((self.server_qch_host, self.server_qch_port), timeout=5) as s:
+                # Handle handshake protocol
+                total_bytes = 0
+                frames_seen = 0
+                handshake_done = False
+                while not self.mock_thread_stop_event.is_set():
+                    try:
+                        data = s.recv(1024)
+                    except socket.timeout:
+                        continue  # periodic check of stop_event
+                    if not data:
+                        break
+                    total_bytes += len(data)
+                    for b in data:
+                        if b == self._handshake_marker:  # Listen for handshake marker (200)
+                            if not handshake_done:
+                                # Send acknowledge marker (150) to signal Bob ready
+                                try:
+                                    s.sendall(self._acknowledge_marker.to_bytes(1, 'big'))
+                                    handshake_done = True
+                                    self.logger.info("Mock receiver: Received handshake, sent ACK")
+                                except Exception as e:
+                                    self.logger.error(f"Mock receiver: Failed to send ACK: {e}")
+                        elif b == self._handshake_end_marker:
+                            if handshake_done:
+                                handshake_done = False
+                                self.logger.info("Mock receiver: Received handshake end")
+                                # Here you might want to send a final ACK or process the end of the handshake
+                                try:
+                                    s.sendall(self._acknowledge_marker.to_bytes(1, 'big'))
+                                    self.logger.info("Mock receiver: Sent final ACK after handshake end")
+                                except Exception as e:
+                                    self.logger.error(f"Mock receiver: Failed to send final ACK: {e}")
+                        elif b == self._end_qch_marker:
+                            self.logger.info("Mock receiver: Received end of quantum channel marker, exiting")
+                            if self.mock_thread_stop_event is not None:
+                                self.mock_thread_stop_event.set()
+                            self.logger.info("Mock receiver: Stopped")
+                            break
+                        else:
+                            # Send back data only if handshake done
+                            if not handshake_done:
+                                continue
+                            # Echo strategy: just send bytes back exactly
+                            try:
+                                s.sendall(data)
+                            except (socket.error, ConnectionResetError) as e:
+                                self.logger.error(f"Mock receiver: Error echoing data: {e}")
+                                break
+
+        except ConnectionRefusedError:
+            self.logger.error("Mock receiver could not connect to Alice server")
+        except Exception as e:
+            self.logger.error(f"Mock receiver unexpected error: {e}")
+
+    def stop_mock_receiver(self) -> None:
+        """Stop mock receiver."""
+        if self.use_mock_receiver and self.mock_thread_stop_event is not None:
+            self.mock_thread_stop_event.set()
+            if self.mock_thread and self.mock_thread.is_alive():
+                self.mock_thread.join(timeout=2)
+            self.logger.info("Mock receiver stopped")
+
+    # ===============================
+    # Complete Protocol Methods
+    # ===============================
+
+    def run_complete_qkd_protocol(self) -> bool:
         """
-        Start the QKD transmission.
+        Run the complete QKD protocol including quantum transmission and post-processing.
         
         Returns:
-            bool: True if transmission started successfully
+            bool: True if protocol completed successfully
+        """
+        self.logger.info("Starting complete QKD protocol...")
+        
+        try:
+            # Setup network components
+            if not self.setup_classical_communication():
+                return False
+            
+            # Setup quantum channel server
+            server = self.setup_quantum_channel_server(self.server_qch_host, self.server_qch_port)
+            self.logger.info(f"Quantum channel server listening on {self.server_qch_host}:{self.server_qch_port}")
+
+            # Setup mock receiver if needed
+            if self.use_mock_receiver:
+                self.setup_mock_receiver()
+            
+            self.logger.info("Waiting for Bob to connect to quantum channel...")
+            connection, address = server.accept()
+            self.quantum_connection = connection
+            self.logger.info(f"Quantum channel connected to {address}")
+            
+            # Run quantum transmission
+            success = self.run_quantum_transmission_with_connection(connection)
+            
+            if success and self.enable_post_processing:
+                # Run post-processing
+                success = self.run_post_processing()
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Error in complete QKD protocol: {e}")
+            return False
+        finally:
+            self.shutdown_components()
+            self.cleanup_network_resources()
+            if self.use_mock_receiver:
+                self.stop_mock_receiver()
+                
+    def run_quantum_transmission_with_connection(self, connection: socket.socket) -> bool:
+        """
+        Run quantum transmission using the provided connection.
+        
+        Args:
+            connection: Established quantum channel connection
+            
+        Returns:
+            bool: True if transmission successful
         """
         if self._running:
             self.logger.warning("Transmission already running")
             return False
-        
-        if not self.initialize_system():
-            return False
-        
-        self._running = True
-        self._shutdown_event.clear()
-        self._pause_event.clear()
-        
-        # Start transmission thread
-        self._transmission_thread = threading.Thread(
-            target=self._transmission_loop,
-            name="AliceTransmission"
-        )
-        self._transmission_thread.start()
-        
-        self.logger.info("QKD transmission started")
-        return True
-
-    def stop_transmission(self) -> None:
-        """Stop the QKD transmission."""
-        if not self._running:
-            self.logger.warning("Transmission not running")
-            return
-        
-        self.logger.info("Stopping QKD transmission...")
-        self._running = False
-        self._shutdown_event.set()
-        
-        # Wait for transmission thread to finish
-        if self._transmission_thread and self._transmission_thread.is_alive():
-            self._transmission_thread.join(timeout=5.0)
-        
-        # Shutdown components
-        self.laser_controller.shutdown()
-        self.polarization_controller.shutdown()
-        
-        self.logger.info("QKD transmission stopped")
-
-    def pause_transmission(self) -> None:
-        """Pause the QKD transmission."""
-        if not self._running:
-            self.logger.warning("Transmission not running")
-            return
-        
-        self._paused = True
-        self._pause_event.set()
-        self.logger.info("QKD transmission paused")
-
-    def resume_transmission(self) -> None:
-        """Resume the QKD transmission."""
-        if not self._paused:
-            self.logger.warning("Transmission not paused")
-            return
-        
-        self._paused = False
-        self._pause_event.clear()
-        self.logger.info("QKD transmission resumed")
-
-    def _transmission_loop(self) -> None:
-        """Main transmission loop running in separate thread."""
-        start_time = time.time()
-        pulse_id = 0
-        
+                
+        # Send quantum bits
         try:
-            while self._running and pulse_id < self.config.num_pulses:
-                # Check for pause
-                if self._paused:
-                    self._pause_event.wait()
-                    continue
-                
-                # Check for shutdown
-                if self._shutdown_event.is_set():
-                    break
-                
-                pulse_start_time = time.time()
-                
-                try:
-                    # Get random bits based on mode
-                    if self.config.mode == AliceMode.BATCH:
-                        basis, bit = self._get_batch_random_bits(pulse_id)
-                    else:
-                        basis, bit = self._get_streaming_random_bits()
-                    
-                    # Rotate polarization
-                    print(f"🔸 Setting polarization for pulse {pulse_id}: Basis={basis}, Bit={bit}")
-                    rotation_start = time.time()
-                    pol_output = self.polarization_controller.set_polarization_manually(basis, bit)
-                    rotation_time = time.time() - rotation_start
-                    self.stats.rotation_times.append(rotation_time)
-                    print(f"   ➡️  Polarization set to {pol_output.angle_degrees}°")
-                    # Wait for polarization to be ready (hardware only)
-                    print(f"🔸 Waiting for polarization to be ready...")
-                    wait_start = time.time()
-                    if not self.polarization_controller.wait_for_availability(timeout=10.0):
-                        self.logger.error(f"Timeout waiting for polarization readiness for pulse {pulse_id}")
-                        raise RuntimeError(f"Polarization not ready for pulse {pulse_id}")
-                    wait_time = time.time() - wait_start
-                    self.stats.wait_times.append(wait_time)
-                    print(f"   ➡️  Polarization ready after {wait_time:.3f}s")
+            if not self.initialize_system():
+                return False
+            
+            self._running = True
 
-
-                    # Fire laser pulse
-                    print(f"🔸 Firing laser pulse {pulse_id}")
-                    laser_start = time.time()
-                    pulse = self._create_and_send_pulse(pol_output, pulse_id, pulse_start_time)
-                    laser_time = time.time() - laser_start
-                    self.stats.laser_times.append(laser_time)
-                    print(f"   ➡️  Laser pulse {pulse_id} fired")
-                    
-                    # Record data
-                    self._record_transmission_data(pulse, pol_output, basis, bit, pulse_id)
-                    
-                    pulse_id += 1
-                    self.stats.pulses_sent += 1
-                    
-                    # Calculate processing time and wait for next pulse
-                    processing_time = time.time() - pulse_start_time
-                    remaining_time = self.config.pulse_period_seconds - processing_time
-                    
-                    if remaining_time > 0:
-                        time.sleep(remaining_time)
-                        self.logger.debug(f"Pulse {pulse_id} processed in {processing_time:.3f}s, sleeping for {remaining_time:.3f}s")
-                    else:
-                        self.logger.warning(f"Pulse {pulse_id} took longer than period: {processing_time:.3f}s > {self.config.pulse_period_seconds}s")
+            # Send handshake to signal start of transmission
+            connection.sendall(self._handshake_marker.to_bytes(1, 'big'))
+            self.logger.debug("Sent handshake to Bob")
+            
+            # Wait for acknowledgment
+            ack = connection.recv(1)
+            if ack == self._not_ready_marker.to_bytes(1, 'big'):
+                raise RuntimeError("Bob not ready for quantum transmission")
+            if ack != self._acknowledge_marker.to_bytes(1, 'big'):
+                raise RuntimeError("Invalid acknowledgment from Bob")
+            
+            self.logger.info("Received ACK from Bob, starting quantum transmission")
+            
+            # Run the transmission loop (modified to work with connection)
+            self._quantum_transmission_loop_with_connection(connection)
+            
+            # Send end marker
+            connection.sendall(self._handshake_end_marker.to_bytes(1, 'big'))
+            self.logger.debug("Sent end marker to Bob")
+            
+            # Wait for final ACK
+            final_ack = connection.recv(1)
+            if final_ack != self._acknowledge_marker.to_bytes(1, 'big'):
+                self.logger.warning("Did not receive final ACK from Bob")
+            else:
+                self.logger.info("Received final ACK from Bob")
                 
-                except Exception as e:
-                    self.logger.error(f"Error processing pulse {pulse_id}: {e}")
-                    self.stats.errors.append(f"Pulse {pulse_id} error: {e}")
-                    continue
-            
-            # Update final statistics
-            self.stats.total_runtime_seconds = time.time() - start_time
-            if self.stats.total_runtime_seconds > 0:
-                self.stats.average_pulse_rate_hz = self.stats.pulses_sent / self.stats.total_runtime_seconds
-            
-            self.logger.info(f"Transmission completed: {self.stats.pulses_sent} pulses in {self.stats.total_runtime_seconds:.2f}s")
-            
         except Exception as e:
-            self.logger.error(f"Critical error in transmission loop: {e}")
-            self.stats.errors.append(f"Critical transmission error: {e}")
+            self.logger.error(f"Error sending quantum bits: {e}")
+            raise
         finally:
-            self._running = False
+            self._running = False            
+            self.logger.info("Quantum transmission completed successfully")
+            return True
+            
+    def _quantum_transmission_loop_with_connection(self, connection: socket.socket) -> None:
+        """Quantum transmission loop that sends data over connection."""
+        start_time = time.time()
+        laser_fire_fraction = 0.8  # Fraction of pulse period to fire laser after polarization set
+        for pulse_id in range(self.num_pulses):
+            if self._shutdown_event.is_set():
+                break
+            
+            pulse_start_time = time.time()
+            # Calculate when to fire laser for this pulse (consistent timing)
+            target_laser_time = start_time + (pulse_id + laser_fire_fraction) * self.config.pulse_period_seconds 
+ 
+            try:
+                # Get basis and bit
+                basis, bit = self._get_basis_and_bit(pulse_id)
+                self.logger.debug(f"Sending qubit {pulse_id}: basis={basis}, bit={bit}")
 
-    def _get_batch_random_bits(self, pulse_id: int) -> tuple[Basis, Bit]:
-        """Get pre-generated random bits for batch mode."""
-        if pulse_id >= len(self._batch_bases) or pulse_id >= len(self._batch_bits):
-            raise IndexError(f"Pulse ID {pulse_id} exceeds batch size")
-        
-        return self._batch_bases[pulse_id], self._batch_bits[pulse_id]
+                # Set polarization
+                print(f"🔸 Pulse {pulse_id}: Setting polarization Basis={basis.name}, Bit={bit.value}")
+                rotation_start = time.time()
+                pol_output = self.polarization_controller.set_polarization_manually(basis, bit)
+                
+                # Wait for polarization readiness
+                print(f"🔸 Pulse {pulse_id}: Waiting for polarization readiness...")
+                wait_start = time.time()
+                if not self.polarization_controller.wait_for_availability(timeout=10.0):
+                    error_msg = f"Timeout waiting for polarization readiness for pulse {pulse_id}"
+                    self.logger.error(error_msg)
+                    self.results.errors.append(error_msg)
+                    raise RuntimeError(f"Polarization not ready for pulse {pulse_id}")
+                wait_time = time.time() - wait_start
+                rotation_time = time.time() - rotation_start
+                self.results.rotation_times.append(rotation_time)
+                self.results.wait_times.append(wait_time)
+                print(f"   ➡️  Polarization ready after {wait_time:.3f}s")
+                print(f"       (Rotation time: {rotation_time:.3f}s)")
+                print(f"   ➡️  Polarization set to {pol_output.angle_degrees}°")
 
-    def _get_streaming_random_bits(self) -> tuple[Basis, Bit]:
-        """Generate random bits on-demand for streaming mode."""
-        # Generate basis choice (0 = Z, 1 = X)
-        basis_bit = self.qrng.get_random_bit()
-        basis = Basis.Z if basis_bit == 0 else Basis.X
+                # Wait until the scheduled laser fire time for consistent timing
+                current_time = time.time()
+                time_until_laser = target_laser_time - current_time
+                
+                if time_until_laser > 0:
+                    print(f"🔸 Pulse {pulse_id}: Waiting {time_until_laser:.3f}s to fire laser at scheduled time")
+                    time.sleep(time_until_laser)
+                elif time_until_laser < -0.001:  # More than 1ms late
+                    self.logger.warning(f" ⚠️ Pulse {pulse_id} is {-time_until_laser:.3f}s late! Polarization took too long.")
+                
+
+                # Fire laser
+                print(f"🔸 Pulse {pulse_id}: Firing laser at scheduled time")
+                laser_start = time.time()
+                if not self.laser_controller.trigger_once():
+                    self.logger.error(f"Failed to trigger laser pulse {pulse_id}")
+                    self.results.errors.append(f"Failed to trigger laser pulse {pulse_id}")
+                    raise RuntimeError(f"Failed to trigger laser pulse {pulse_id}")
+                self.logger.debug(f"Laser pulse {pulse_id} triggered successfully")
+                laser_time = time.time() - laser_start
+                timing_error = laser_start - target_laser_time
+                print(f"   ➡️  Laser fired in {laser_time:.3f}s (timing error: {timing_error*1000:.1f}ms)")
+
+                # Record data
+                self.results.bases.append(basis)
+                self.results.bits.append(bit)
+                self.results.polarization_angles.append(pol_output.angle_degrees)
+                self.results.pulse_ids.append(pulse_id)
+                # Record timestamps
+                self.results.pulse_timestamps.append(laser_start-start_time)
+                self.results.rotation_times.append(rotation_time)
+                self.results.wait_times.append(wait_time)
+                self.results.laser_times.append(laser_time)
+
+                self.results.pulses_sent += 1
+
+                # Wait for next pulse period (until next pulse should start)
+                next_pulse_start = start_time + (pulse_id + 1) * self.config.pulse_period_seconds
+                current_time = time.time()
+                remaining_time = next_pulse_start - current_time
+
+                if remaining_time > 0:
+                    print(f"--------------------------> DEBUG: Waiting {remaining_time:.3f}s for next pulse period, Fired at {laser_start - start_time:.3f}, Target was {target_laser_time- start_time:.3f}")
+                    self.logger.debug(f"Waiting {remaining_time:.3f}s for next pulse period, Fired at {laser_start - start_time:.3f}, Target was {target_laser_time- start_time:.3f}")
+                    time.sleep(remaining_time)
+                elif remaining_time < -0.05:  # More than 50ms late
+                    self.logger.warning(f" Pulse {pulse_id} is {-remaining_time:.3f}s late for just a little late.")
+                else:
+                    total_pulse_time = current_time - pulse_start_time
+                    self.logger.warning(f" ⚠️ Pulse {pulse_id} exceeded period: {total_pulse_time:.3f}s > {self.config.pulse_period_seconds}s")
+                
+                print(f"   ✅ Pulse {pulse_id} completed\n")
+          
+                
+            except Exception as e:
+                self.logger.error(f"Error processing pulse {pulse_id}: {e}")
+                self.results.errors.append(f"Pulse {pulse_id} error: {e}")
+                continue
         
-        # Generate bit value
-        bit_value = self.qrng.get_random_bit()
-        bit = Bit(bit_value)
+        # Update statistics
+        self.results.total_runtime_seconds = time.time() - start_time
+        if self.results.total_runtime_seconds > 0:
+            self.results.average_pulse_rate_hz = self.results.pulses_sent / self.results.total_runtime_seconds
+ 
+    def _get_basis_and_bit(self, pulse_id: int) -> Tuple[Basis, Bit]:
+        """Get basis and bit for the given pulse (unified method)."""
+        if self.mode == AliceMode.PREDETERMINED or self.mode == AliceMode.RANDOM_BATCH:
+            # Use predetermined values
+            basis_val = self.predetermined_bases[pulse_id]
+            bit_val = self.predetermined_bits[pulse_id]
+        elif self.mode == AliceMode.SEEDED or self.mode == AliceMode.RANDOM_STREAM:
+            # Generate random values using QRNG
+            basis_val = int(self.qrng.get_random_bit())
+            bit_val = int(self.qrng.get_random_bit())
+        else:
+            raise ValueError("Invalid test mode")
+        
+        basis = Basis.Z if basis_val == 0 else Basis.X
+        bit = Bit(bit_val)
         
         return basis, bit
-
-    def _create_and_send_pulse(self, pol_output: PolarizationOutput, pulse_id: int, timestamp: float) -> Pulse:
-        """Create and send a laser pulse with the specified polarization."""
+    
+    def run_post_processing(self) -> bool:
+        """
+        Run post-processing including sifting, error correction, and privacy amplification.
         
-        # Fire the laser
-        success = self.laser_controller.trigger_once()
-        if not success:
-            self.logger.error("Failed to trigger laser pulse")
-            raise RuntimeError("Failed to trigger laser pulse")
-        self.logger.debug(f"Laser pulse {pulse_id} triggered successfully")
-
-        # Create pulse object for record-keeping
-        pulse = Pulse(
-            polarization=pol_output.angle_degrees,
-            photons=1  # Assuming single photon per pulse
-        )
+        Returns:
+            bool: True if post-processing successful
+        """
+        if not self.classical_channel_participant_for_pp:
+            self.logger.error("Classical channel not initialized")
+            return False
         
-        return pulse
+        try:
+            # Convert transmission data to format expected by post-processing
+            alice_bits = [int(bit) for bit in self.results.bits]
+            alice_bases = [int(basis) for basis in self.results.bases]
+            
+            # Run post-processing
+            final_key = self.classical_channel_participant_for_pp.alice_run_qkd_classical_process_threading(
+                alice_bits, alice_bases, True, self.test_fraction, self.error_threshold, self.pa_compression_rate
+            )
 
-    def _record_transmission_data(self, pulse: Pulse, pol_output: PolarizationOutput, 
-                                basis: Basis, bit: Bit, pulse_id: int) -> None:
-        """Record transmission data for analysis."""
-        self.transmission_data.pulse_times.append(time.time())
-        self.transmission_data.pulses.append(pulse)
-        self.transmission_data.bases.append(basis)
-        self.transmission_data.bits.append(bit)
-        self.transmission_data.polarization_angles.append(pol_output.angle_degrees)
-        self.transmission_data.pulse_ids.append(pulse_id)
+            if final_key:
+                self.logger.info(f"Post-processing completed. Final key length: {len(final_key)}")
+                return True
+            else:
+                self.logger.warning("Post-processing failed to generate a key")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error in post-processing: {e}")
+            return False
 
-    def get_statistics(self) -> AliceStats:
-        """Get current system statistics."""
-        return self.stats
+    def shutdown_components(self) -> None:
+        """Shutdown all components."""
+        self.logger.info("Shutting down hardware components...")        
+        try:
+            self.laser_controller.shutdown()
+            self.polarization_controller.shutdown()
+        except Exception as e:
+            self.logger.error(f"Error shutting down hardware: {e}")
 
-    def get_transmission_data(self) -> TransmissionData:
-        """Get collected transmission data."""
-        return self.transmission_data
+    def cleanup_network_resources(self) -> None:
+        """Cleanup network resources."""
+        if self.quantum_connection:
+            try:
+                self.quantum_connection.close()
+            except Exception as e:
+                self.logger.error(f"Error closing quantum connection: {e}")
+        
+        if self.quantum_server:
+            try:
+                self.quantum_server.close()
+            except Exception as e:
+                self.logger.error(f"Error closing quantum server: {e}")
+        
+        if self.classical_channel_participant_for_pp:
+            try:
+                self.classical_channel_participant_for_pp.alice_join_threads()
+                self.classical_channel_participant_for_pp._role_alice._stop_all_threads()
+            except Exception as e:
+                self.logger.error(f"Error stopping classical channel: {e}")
+        
+        self.stop_mock_receiver()
+        self.logger.info("Network resources cleaned up")
+   
+
+    def get_results(self) -> AliceResults:
+        """Get comprehensive results including statistics and transmission data."""
+        return self.results
 
     def is_running(self) -> bool:
         """Check if transmission is currently running."""
         return self._running
 
-    def is_paused(self) -> bool:
-        """Check if transmission is currently paused."""
-        return self._paused
-
     def get_progress(self) -> float:
         """Get transmission progress as percentage."""
         if self.config.num_pulses == 0:
             return 100.0
-        return (self.stats.pulses_sent / self.config.num_pulses) * 100.0
+        return (self.results.pulses_sent / self.config.num_pulses) * 100.0
 
     def get_component_info(self) -> Dict[str, Any]:
         """Get information about all components."""
@@ -436,11 +821,14 @@ class AliceCPU:
                 "bits_generated": self.qrng.get_bits_generated()
             }
         }
-
+        
     def __del__(self):
         """Cleanup when object is destroyed."""
-        if self._running:
-            self.stop_transmission()
+        try:
+            self.shutdown_components()
+        except Exception as e:
+            self.logger.error(f"Error during shutdown: {e}")
+        self.cleanup_network_resources()
 
 
 if __name__ == "__main__":
@@ -448,36 +836,87 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("AliceCPU.Main")
     
-    # Example configuration
+    # Example configuration for complete QKD protocol
     config = AliceConfig(
+        # Quantum transmission parameters
         num_pulses=10,
         pulse_period_seconds=1,  # 1 second between pulses
-        use_hardware=True,
-        com_port="COM4",  # Replace with actual COM port used for polarization hardware
-        laser_channel=8,  # Replace with actual digital channel used for laser hardware
-        mode=AliceMode.BATCH,
-        qrng_seed=42
+        use_hardware=False,  # Set to True for actual hardware
+        com_port="COM4",  # Replace with actual COM port for polarization hardware
+        laser_channel=8,  # Replace with actual digital channel for laser hardware
+        mode=AliceMode.RANDOM_STREAM,
+        qrng_seed=42,
+        
+        # Network configuration
+        use_mock_receiver=True,  # For testing without actual Bob
+        server_qch_host="localhost",
+        server_qch_port=12345,
+        
+        # Classical communication
+        alice_ip="localhost",
+        alice_port=65432,
+        bob_ip="localhost", 
+        bob_port=65433,
+        shared_secret_key="IzetXlgAnY4oye56",
+        
+        # Post-processing
+        enable_post_processing=True,
+        test_fraction=0.11,
+        error_threshold=0.11,
+        pa_compression_rate=0.5
     )
     
+    # Create Alice CPU instance
     alice_cpu = AliceCPU(config)
     
-    if alice_cpu.start_transmission():
-        # Wait for transmission to complete
-        while alice_cpu.is_running():
-            time.sleep(1)
-            progress = alice_cpu.get_progress()
-            logger.info(f"Transmission progress: {progress:.2f}%")
-
-        # Check if really stopped
-        alice_cpu.stop_transmission()
-
-        stats = alice_cpu.get_statistics()
-        data = alice_cpu.get_transmission_data()
+    try:
+        logger.info("Starting complete QKD protocol...")
         
-        logger.info(f"Transmission finished. Stats: {stats}")
-        logger.info(f"Collected data for {len(data.pulse_ids)} pulses.")
-    else:
-        logger.error("Failed to start transmission")
+        # Run the complete QKD protocol (quantum + post-processing)
+        success = alice_cpu.run_complete_qkd_protocol()
+        
+        if success:
+            # Get results
+            results = alice_cpu.get_results()
+            
+            logger.info(f"QKD protocol completed successfully!")
+            logger.info(f"Transmitted {results.pulses_sent} pulses in {results.total_runtime_seconds:.2f}s")
+            logger.info(f"Average pulse rate: {results.average_pulse_rate_hz:.2f} Hz")
+            logger.info(f"Collected data for {len(results.pulse_ids)} pulses")
+            
+            if results.errors:
+                logger.warning(f"Encountered {len(results.errors)} errors during transmission")
+        else:
+            logger.error("QKD protocol failed")
+            
+    except KeyboardInterrupt:
+        logger.info("QKD protocol interrupted by user")
+    except Exception as e:
+        logger.error(f"Error running QKD protocol: {e}")
+    finally:
+        # Cleanup is handled automatically by __del__
+        logger.info("Alice CPU session ended")
+
+
+
+
+    # Alternative example (commented out - these methods don't exist yet)
+    # if alice_cpu.start_protocol_transmission_post_processing():
+    #     # Wait for transmission to complete
+    #     while alice_cpu.is_running():
+    #         time.sleep(1)
+    #         progress = alice_cpu.get_progress()
+    #         logger.info(f"Transmission progress: {progress:.2f}%")
+
+    #     # Check if really stopped
+    #     alice_cpu.stop_protocol()
+
+    #     results = alice_cpu.get_results()
+        
+    #     logger.info(f"Transmission finished. Results: {results}")
+    #     logger.info(f"Collected data for {len(results.pulse_ids)} pulses.")
+    # else:
+    #     logger.error("Failed to start transmission")
 
 
 #### MISSING BEFORE STARTING THE GENERATION AND SENDING, A READY TO RECEIVE SIGNAL WITH BOB THROUGH THE CLASSICAL CHANNEL
