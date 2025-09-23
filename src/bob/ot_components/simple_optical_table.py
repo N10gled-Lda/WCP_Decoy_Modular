@@ -88,55 +88,114 @@ class SimpleOpticalTable:
         Measure polarization and determine which detector fires.
         
         Args:
-            pulse: Input pulse
+            pulse: Input pulse with polarization angle (degrees) and photon count
             
         Returns:
             Tuple of (detector_id, detection_probability)
         """
-        # Get the angle between pulse polarization and measurement basis
-        angle_diff = self._calculate_polarization_angle_difference(pulse.basis, self.current_basis)
+        # Convert polarization angle to determine which detector should fire
+        detector_id = self._determine_detector_from_angle(pulse.polarization)
         
         # Apply angular deviations if enabled
+        effective_angle = pulse.polarization
         if self.config.apply_angular_deviation:
-            angle_diff += self._get_angular_deviation()
+            effective_angle += np.degrees(self._get_angular_deviation())
         
         # Apply basis alignment error
-        angle_diff += np.radians(self.config.basis_alignment_error_degrees)
+        effective_angle += self.config.basis_alignment_error_degrees
         
-        # Determine which detector should fire based on polarization
-        detector_id = self._determine_detector(pulse.basis, self.current_basis, angle_diff)
+        # Calculate detection probability using Malus law and photon count
+        detection_probability = self._calculate_detection_probability(effective_angle, pulse.photons)
         
-        # Calculate detection probability using Malus law
-        detection_probability = self._calculate_detection_probability(angle_diff, pulse.intensity)
-        
-        self.logger.debug(f"Pulse {pulse.pulse_id}: basis {pulse.basis.value} → detector {detector_id.name}, P={detection_probability:.3f}")
+        self.logger.debug(f"Pulse {pulse.polarization}°: → detector {detector_id.name}, P={detection_probability:.3f}")
         
         return detector_id, detection_probability
 
-    def _calculate_polarization_angle_difference(self, pulse_basis: Basis, measurement_basis: Basis) -> float:
+    def _determine_detector_from_angle(self, polarization_degrees: float) -> SimpleDetectorId:
         """
-        Calculate angle difference between pulse and measurement polarizations.
+        Determine which detector should fire based on polarization angle.
         
         Args:
-            pulse_basis: Basis of the incoming pulse
-            measurement_basis: Current measurement basis
+            polarization_degrees: Polarization angle in degrees
             
         Returns:
-            Angle difference in radians
+            Detector that should fire
         """
-        # Define basis angles (in radians)
-        basis_angles = {
-            Basis.Z: 0.0,      # Z basis: 0° (H) and 90° (V)  
-            Basis.X: np.pi/4   # X basis: 45° (D) and 135° (A)
+        # Normalize angle to 0-180° range
+        angle = polarization_degrees % 180
+        
+        # Define detector angles
+        detector_angles = {
+            SimpleDetectorId.H: 0.0,    # Horizontal (0°)
+            SimpleDetectorId.V: 90.0,   # Vertical (90°)
+            SimpleDetectorId.D: 45.0,   # Diagonal (45°)
+            SimpleDetectorId.A: 135.0   # Anti-diagonal (135°)
         }
         
-        pulse_angle = basis_angles[pulse_basis]
-        measurement_angle = basis_angles[measurement_basis]
+        # If perfect measurement, choose deterministically based on measurement basis
+        if self.config.perfect_measurement:
+            if self.current_basis == Basis.Z:
+                # Z basis: choose closest between H(0°) and V(90°)
+                return SimpleDetectorId.H if abs(angle - 0) < abs(angle - 90) else SimpleDetectorId.V
+            else:
+                # X basis: choose closest between D(45°) and A(135°)
+                return SimpleDetectorId.D if abs(angle - 45) < abs(angle - 135) else SimpleDetectorId.A
+        else:
+            # Imperfect measurement: probabilistic based on Malus law
+            if self.current_basis == Basis.Z:
+                # Z basis measurement
+                angle_diff_h = abs(angle - 0)
+                if angle_diff_h > 90:
+                    angle_diff_h = 180 - angle_diff_h
+                prob_h = np.cos(np.radians(angle_diff_h)) ** 2
+                return SimpleDetectorId.H if np.random.random() < prob_h else SimpleDetectorId.V
+            else:
+                # X basis measurement
+                angle_diff_d = abs(angle - 45)
+                if angle_diff_d > 90:
+                    angle_diff_d = 180 - angle_diff_d
+                prob_d = np.cos(np.radians(angle_diff_d)) ** 2
+                return SimpleDetectorId.D if np.random.random() < prob_d else SimpleDetectorId.A
+
+    def _calculate_detection_probability(self, effective_angle: float, photon_count: int) -> float:
+        """
+        Calculate detection probability using Malus law.
         
-        return abs(pulse_angle - measurement_angle)
+        Args:
+            effective_angle: Effective polarization angle in degrees (after deviations)
+            photon_count: Number of photons in the pulse
+            
+        Returns:
+            Detection probability (0.0 to 1.0)
+        """
+        if photon_count == 0:
+            return 0.0
+        
+        # Normalize angle
+        angle = effective_angle % 180
+        
+        # Calculate angle difference from measurement basis
+        if self.current_basis == Basis.Z:
+            # For Z basis, calculate distance from H(0°) or V(90°)
+            angle_diff = min(abs(angle - 0), abs(angle - 90))
+        else:
+            # For X basis, calculate distance from D(45°) or A(135°)
+            angle_diff = min(abs(angle - 45), abs(angle - 135))
+        
+        # Ensure angle difference is within 0-90°
+        if angle_diff > 90:
+            angle_diff = 180 - angle_diff
+        
+        # Malus law: I = I₀ * cos²(θ)
+        malus_factor = np.cos(np.radians(angle_diff)) ** 2
+        
+        # Scale by photon count (assume linear relationship)
+        probability = min(1.0, photon_count * malus_factor / 10.0)  # Normalize to reasonable scale
+        
+        return max(0.0, probability)
 
     def _get_angular_deviation(self) -> float:
-        """Get angular deviation to apply."""
+        """Get angular deviation to apply (in radians)."""
         if self.config.random_angular_deviation:
             # Random deviation within specified range
             max_dev = np.radians(self.config.max_random_deviation_degrees)
@@ -144,67 +203,6 @@ class SimpleOpticalTable:
         else:
             # Fixed deviation
             return np.radians(self.config.angular_deviation_degrees)
-
-    def _determine_detector(self, pulse_basis: Basis, measurement_basis: Basis, angle_diff: float) -> SimpleDetectorId:
-        """
-        Determine which detector should fire based on polarization.
-        
-        Args:
-            pulse_basis: Original pulse basis
-            measurement_basis: Current measurement basis  
-            angle_diff: Angular difference
-            
-        Returns:
-            Detector that should fire
-        """
-        if self.config.perfect_measurement:
-            # Perfect measurement - deterministic detector selection
-            if measurement_basis == Basis.Z:
-                # Z basis measurement
-                if pulse_basis == Basis.Z:
-                    # Same basis - choose H or V based on bit value
-                    return SimpleDetectorId.H if np.random.random() < 0.5 else SimpleDetectorId.V
-                else:
-                    # Different basis - random between H and V
-                    return SimpleDetectorId.H if np.random.random() < 0.5 else SimpleDetectorId.V
-            else:
-                # X basis measurement  
-                if pulse_basis == Basis.X:
-                    # Same basis - choose D or A based on bit value
-                    return SimpleDetectorId.D if np.random.random() < 0.5 else SimpleDetectorId.A
-                else:
-                    # Different basis - random between D and A
-                    return SimpleDetectorId.D if np.random.random() < 0.5 else SimpleDetectorId.A
-        else:
-            # Imperfect measurement - use Malus law probability
-            if measurement_basis == Basis.Z:
-                # Measuring in Z basis
-                prob_h = np.cos(angle_diff) ** 2
-                return SimpleDetectorId.H if np.random.random() < prob_h else SimpleDetectorId.V
-            else:
-                # Measuring in X basis
-                prob_d = np.cos(angle_diff) ** 2  
-                return SimpleDetectorId.D if np.random.random() < prob_d else SimpleDetectorId.A
-
-    def _calculate_detection_probability(self, angle_diff: float, intensity: float) -> float:
-        """
-        Calculate detection probability using Malus law.
-        
-        Args:
-            angle_diff: Angular difference in radians
-            intensity: Pulse intensity
-            
-        Returns:
-            Detection probability (0.0 to 1.0)
-        """
-        # Malus law: I = I₀ * cos²(θ)
-        malus_factor = np.cos(angle_diff) ** 2
-        
-        # Scale by pulse intensity
-        probability = intensity * malus_factor
-        
-        # Ensure probability is between 0 and 1
-        return max(0.0, min(1.0, probability))
 
     def detector_to_bit(self, detector_id: SimpleDetectorId, measurement_basis: Basis) -> Optional[Bit]:
         """

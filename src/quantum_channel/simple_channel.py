@@ -10,7 +10,7 @@ import logging
 import numpy as np
 from dataclasses import dataclass
 from typing import List, Optional, Union
-from ..utils.data_structures import Pulse
+from src.utils.data_structures import Pulse
 
 
 @dataclass
@@ -71,7 +71,7 @@ class SimpleQuantumChannel:
         # Check for random loss first
         if self.config.random_loss_probability > 0:
             if np.random.random() < self.config.random_loss_probability:
-                self.logger.debug(f"Pulse {pulse.pulse_id} randomly lost")
+                self.logger.debug(f"Pulse randomly lost")
                 return None
         
         # Apply attenuation if enabled
@@ -81,16 +81,11 @@ class SimpleQuantumChannel:
             
             # Create new pulse with reduced intensity
             attenuated_pulse = Pulse(
-                pulse_id=pulse.pulse_id,
-                timestamp=pulse.timestamp,
-                basis=pulse.basis,
-                bit=pulse.bit,
-                intensity=pulse.intensity * attenuation_factor,
-                wavelength_nm=pulse.wavelength_nm,
-                duration_ns=pulse.duration_ns
+                polarization=pulse.polarization,
+                photons=int(pulse.photons * attenuation_factor),
             )
             
-            self.logger.debug(f"Pulse {pulse.pulse_id} attenuated by {self.config.attenuation_db} dB")
+            self.logger.debug(f"Pulse attenuated by {self.config.attenuation_db} dB")
             return attenuated_pulse
         
         # No modifications applied
