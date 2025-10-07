@@ -6,18 +6,24 @@ from .timetagger_base import (
     TimeStamp,
     ChannelConfig,
     TimeTaggerConfig,
-    ChannelState,
-    TimeTaggerStatistics
+    ChannelState
 )
 
 # Hardware implementation
 from .timetagger_hardware import TimeTaggerHardware
 
 # Simulator implementation
-from .timetagger_simulator import TimeTaggerSimulator, SimulatorConfig
+from .timetagger_simulator import TimeTaggerSimulator
 
 # Controller for hardware/simulator selection
 from .timetagger_controller import TimeTaggerController, TimeTaggerControllerConfig
+
+from .simple_timetagger_base_hardware_simulator import (
+    SimpleTimeTagger,
+    SimpleTimeTaggerHardware,
+    SimpleTimeTaggerSimulator
+)
+from .simple_timetagger_controller import SimpleTimeTaggerController
 
 __all__ = [
     # Base classes
@@ -26,16 +32,20 @@ __all__ = [
     'ChannelConfig', 
     'TimeTaggerConfig',
     'ChannelState',
-    'TimeTaggerStatistics',
     
     # Hardware implementation
     'TimeTaggerHardware',
     
     # Simulator implementation
     'TimeTaggerSimulator',
-    'SimulatorConfig',
     
     # Controller
     'TimeTaggerController',
     'TimeTaggerControllerConfig'
+
+    # Simple versions
+    'SimpleTimeTagger',
+    'SimpleTimeTaggerHardware',
+    'SimpleTimeTaggerSimulator',
+    'SimpleTimeTaggerController'
 ]

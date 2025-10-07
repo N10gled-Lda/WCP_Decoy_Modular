@@ -511,6 +511,9 @@ class AliceCPU:
         self.logger.info("Starting complete QKD protocol...")
         
         try:
+            if not self.initialize_system():
+                return False
+
             # Setup network components
             if not self.setup_classical_communication():
                 return False
@@ -562,9 +565,6 @@ class AliceCPU:
                 
         # Send quantum bits
         try:
-            if not self.initialize_system():
-                return False
-            
             self._running = True
 
             # Send handshake to signal start of transmission
@@ -896,27 +896,6 @@ if __name__ == "__main__":
     finally:
         # Cleanup is handled automatically by __del__
         logger.info("Alice CPU session ended")
-
-
-
-
-    # Alternative example (commented out - these methods don't exist yet)
-    # if alice_cpu.start_protocol_transmission_post_processing():
-    #     # Wait for transmission to complete
-    #     while alice_cpu.is_running():
-    #         time.sleep(1)
-    #         progress = alice_cpu.get_progress()
-    #         logger.info(f"Transmission progress: {progress:.2f}%")
-
-    #     # Check if really stopped
-    #     alice_cpu.stop_protocol()
-
-    #     results = alice_cpu.get_results()
-        
-    #     logger.info(f"Transmission finished. Results: {results}")
-    #     logger.info(f"Collected data for {len(results.pulse_ids)} pulses.")
-    # else:
-    #     logger.error("Failed to start transmission")
 
 
 #### MISSING BEFORE STARTING THE GENERATION AND SENDING, A READY TO RECEIVE SIGNAL WITH BOB THROUGH THE CLASSICAL CHANNEL

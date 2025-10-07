@@ -22,7 +22,7 @@ from .ot_components import (
 )
 from .timetagger import (
     TimeTaggerController, TimeTaggerControllerConfig, TimeTaggerConfig,
-    ChannelConfig as TTChannelConfig, SimulatorConfig, TimeStamp
+    ChannelConfig as TTChannelConfig, TimeStamp
 )
 
 
@@ -64,15 +64,11 @@ class BobConfig:
                 buffer_size=100000,
                 measurement_duration_s= 1,
                 channels={
-                    0: TTChannelConfig(channel_id=0, enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # H detector
-                    1: TTChannelConfig(channel_id=1, enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # V detector  
-                    2: TTChannelConfig(channel_id=2, enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # D detector
-                    3: TTChannelConfig(channel_id=3, enabled=True, trigger_level_v=0.5, dead_time_ps=50000),  # A detector
+                    0: TTChannelConfig(channel_id=0, enabled=True),  # H detector
+                    1: TTChannelConfig(channel_id=1, enabled=True),  # V detector  
+                    2: TTChannelConfig(channel_id=2, enabled=True),  # D detector
+                    3: TTChannelConfig(channel_id=3, enabled=True),  # A detector
                 }
-            ),
-            simulator_config=SimulatorConfig(
-                dark_count_rate_hz=100.0,
-                timing_jitter_ps=10.0
             )
         )
     )

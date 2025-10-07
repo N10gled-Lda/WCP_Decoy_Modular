@@ -10,13 +10,13 @@ from datetime import datetime
 import os
 
 #from Classical_Communication_Channel.communication_channel.classical_communication_packet import OutboxPacket
-from classical_communication_channel.communication_channel.role import Role
-from ErrorReconciliation.cascade.algorithm import get_algorithm_by_name
-from ErrorReconciliation.cascade.block import Block
-from ErrorReconciliation.cascade.key import Key
+from ...classical_communication_channel.communication_channel.role import Role
+from ...ErrorReconciliation.cascade.algorithm import get_algorithm_by_name
+from ...ErrorReconciliation.cascade.block import Block
+from ...ErrorReconciliation.cascade.key import Key
 #from cascade.mock_classical_channel import MockClassicalChannel
-from ErrorReconciliation.cascade.shuffle import Shuffle
-from ErrorReconciliation.cascade.stats import Stats
+from ...ErrorReconciliation.cascade.shuffle import Shuffle
+from ...ErrorReconciliation.cascade.stats import Stats
 
 # Auxiliar should not exit in final implementation
 RED = '\033[91m'

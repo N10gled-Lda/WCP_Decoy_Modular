@@ -1,10 +1,14 @@
+import os
 import pickle
 import socket
+import sys
 import threading
 import time
 import random
 import numpy as np
 import queue
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from BB84.bb84_protocol.qubit2 import Qubit2
 from classical_communication_channel.communication_channel.role import Role

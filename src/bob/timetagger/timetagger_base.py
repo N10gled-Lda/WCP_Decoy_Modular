@@ -28,50 +28,50 @@ class TimeStamp:
             raise ValueError("Channel number cannot be negative")
 
 
-@dataclass
+@dataclass 
 class ChannelConfig:
-    """Configuration for a time tagger channel."""
+    """Simplified channel configuration - only essential parameters."""
     channel_id: int
     enabled: bool = True
-    trigger_level_v: float = 0.5  # Trigger level in volts
-    trigger_edge: str = "rising"  # "rising", "falling", "both"
-    input_impedance_ohm: int = 50  # Input impedance
-    dead_time_ps: int = 1000  # Dead time in picoseconds
-    delay_ps: int = 0  # Channel delay in picoseconds
 
 
 @dataclass
 class TimeTaggerConfig:
-    """Configuration for time tagger system."""
+    """Unified configuration for time tagger system - works for both simulator and hardware."""
     channels: Dict[int, ChannelConfig]
     resolution_ps: int = 1  # Time resolution in picoseconds
     buffer_size: int = 1000000  # Event buffer size
     measurement_duration_s: float = 1.0  # Default measurement duration
     sync_channel: Optional[int] = None  # Sync/reference channel
-
-
-@dataclass
-class TimeTaggerStatistics:
-    """Statistics for time tagger performance."""
-    total_events: int = 0
-    events_per_channel: Dict[int, int] = None
-    lost_events: int = 0
-    buffer_overflows: int = 0
-    measurement_time_s: float = 0.0
-    count_rates_hz: Dict[int, float] = None
+    
+    # Hardware-specific parameters (used by TimeTaggerHardware, ignored by simulator)
+    detector_channels: List[int] = None  # Detection channels for hardware
+    gate_mode: Optional[Any] = None  # GateMode enum (set by hardware class)
+    gate_begin_channel: int = 21  # Trigger channel for gate start
+    gate_end_channel: int = -21   # Trigger channel for gate end (negative for inverted)
+    gate_length_ps: int = 1000000  # Gate length in picoseconds (1ms default)
+    binwidth_ps: int = int(1e9)  # 1ms bin width in picoseconds
+    n_values: int = 1000  # Number of bins
+    use_test_signal: bool = False  # Enable built-in test signals
+    test_signal_channels: List[int] = None  # Test signal channels
     
     def __post_init__(self):
-        if self.events_per_channel is None:
-            self.events_per_channel = {}
-        if self.count_rates_hz is None:
-            self.count_rates_hz = {}
+        # Set default values for lists
+        if self.detector_channels is None:
+            self.detector_channels = [1, 2, 3, 4]
+        if self.test_signal_channels is None:
+            self.test_signal_channels = [1, 2]
+
+
+# Removed complex TimeTaggerStatistics dataclass - using simple dictionaries instead
 
 
 class BaseTimeTaggerDriver(ABC):
     """
     Abstract base class for time tagger drivers.
     
-    Defines the interface that both hardware and simulator drivers must implement.
+    Simplified interface similar to Alice's laser drivers.
+    Defines only the essential methods that both hardware and simulator must implement.
     """
     
     def __init__(self, config: TimeTaggerConfig):
@@ -82,14 +82,18 @@ class BaseTimeTaggerDriver(ABC):
             config: Time tagger configuration
         """
         self.config = config
-        self.stats = TimeTaggerStatistics()
-        self._is_measuring = False
-        self._start_time = 0.0
+        self._stats = {
+            'total_events': 0,
+            'events_per_channel': {},
+            'buffer_overflows': 0,
+            'measurement_time_s': 0.0,
+            'count_rates_hz': {}
+        }
         
     @abstractmethod
     def initialize(self) -> bool:
         """
-        Initialize the time tagger.
+        Initialize the time tagger hardware/simulator.
         
         Returns:
             bool: True if initialization successful
@@ -97,140 +101,50 @@ class BaseTimeTaggerDriver(ABC):
         pass
     
     @abstractmethod
-    def start_measurement(self) -> bool:
+    def shutdown(self) -> bool:
         """
-        Start time stamp data acquisition.
+        Shutdown the time tagger hardware/simulator.
         
         Returns:
-            bool: True if measurement started successfully
+            bool: True if shutdown successful
         """
         pass
     
     @abstractmethod
-    def stop_measurement(self) -> bool:
+    def get_single_gate_counts(self) -> Dict[int, int]:
         """
-        Stop time stamp data acquisition.
+        Get detection counts for a single gate window.
+        This is the main measurement method for QKD.
         
         Returns:
-            bool: True if measurement stopped successfully
+            Dict[int, int]: Detector channel ID -> count mapping
         """
         pass
     
-    @abstractmethod
-    def get_timestamps(self, max_events: Optional[int] = None) -> List[TimeStamp]:
+    def get_statistics(self) -> Dict[str, Any]:
         """
-        Get collected time stamps.
-        
-        Args:
-            max_events: Maximum number of events to retrieve
-            
-        Returns:
-            List of time stamp events
-        """
-        pass
-    
-    @abstractmethod
-    def configure_channel(self, channel_id: int, config: ChannelConfig) -> bool:
-        """
-        Configure a specific channel.
-        
-        Args:
-            channel_id: Channel to configure
-            config: Channel configuration
-            
-        Returns:
-            bool: True if configuration successful
-        """
-        pass
-    
-    @abstractmethod
-    def get_channel_state(self, channel_id: int) -> ChannelState:
-        """
-        Get the current state of a channel.
-        
-        Args:
-            channel_id: Channel to query
-            
-        Returns:
-            Current channel state
-        """
-        pass
-    
-    @abstractmethod
-    def get_count_rates(self) -> Dict[int, float]:
-        """
-        Get count rates for all enabled channels.
+        Get performance statistics.
+        Default implementation returns basic stats - override for specific details.
         
         Returns:
-            Dictionary mapping channel ID to count rate in Hz
+            Dict[str, Any]: Current statistics as simple dictionary
         """
-        pass
+        return self._stats.copy()
     
-    @abstractmethod
-    def clear_buffer(self) -> bool:
-        """
-        Clear the internal event buffer.
-        
-        Returns:
-            bool: True if buffer cleared successfully
-        """
-        pass
-    
-    @abstractmethod
-    def get_device_info(self) -> Dict[str, Any]:
-        """
-        Get device information and status.
-        
-        Returns:
-            Dictionary with device information
-        """
-        pass
-    
-    def is_measuring(self) -> bool:
-        """Check if measurement is currently active."""
-        return self._is_measuring
-    
-    def get_statistics(self) -> TimeTaggerStatistics:
-        """Get time tagger statistics."""
-        return self.stats
-    
-    def get_enabled_channels(self) -> List[int]:
-        """Get list of enabled channel IDs."""
-        return [ch_id for ch_id, config in self.config.channels.items() if config.enabled]
-    
-    def enable_channel(self, channel_id: int) -> bool:
-        """Enable a specific channel."""
-        if channel_id in self.config.channels:
-            self.config.channels[channel_id].enabled = True
-            return True
-        return False
-    
-    def disable_channel(self, channel_id: int) -> bool:
-        """Disable a specific channel."""
-        if channel_id in self.config.channels:
-            self.config.channels[channel_id].enabled = False
-            return True
-        return False
-    
+    def get_status(self) -> Dict[str, Any]:
+        """Get status information. Override in subclasses for specific status."""
+        return {
+            "driver_type": self.__class__.__name__,
+            "initialized": True,
+            "measuring": False
+        }
+
     def reset_statistics(self) -> None:
         """Reset all statistics."""
-        self.stats = TimeTaggerStatistics()
-    
-    def _update_statistics(self, timestamps: List[TimeStamp]) -> None:
-        """Update statistics with new timestamp data."""
-        self.stats.total_events += len(timestamps)
-        
-        # Update per-channel statistics
-        for ts in timestamps:
-            if ts.channel not in self.stats.events_per_channel:
-                self.stats.events_per_channel[ts.channel] = 0
-            self.stats.events_per_channel[ts.channel] += 1
-        
-        # Update measurement time
-        if self._is_measuring:
-            self.stats.measurement_time_s = time.time() - self._start_time
-            
-            # Calculate count rates
-            if self.stats.measurement_time_s > 0:
-                for ch_id, count in self.stats.events_per_channel.items():
-                    self.stats.count_rates_hz[ch_id] = count / self.stats.measurement_time_s
+        self._stats = {
+            'total_events': 0,
+            'events_per_channel': {},
+            'buffer_overflows': 0,
+            'measurement_time_s': 0.0,
+            'count_rates_hz': {}
+        }

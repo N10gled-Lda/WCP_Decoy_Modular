@@ -9,28 +9,8 @@ from queue import Queue, Empty
 
 from .timetagger_base import (
     BaseTimeTaggerDriver, TimeStamp, ChannelConfig, TimeTaggerConfig, 
-    ChannelState, TimeTaggerStatistics
+    ChannelState
 )
-
-
-@dataclass
-class SimulatorConfig:
-    """Configuration specific to the simulator."""
-    # Noise and jitter
-    timing_jitter_ps: float = 10.0  # RMS timing jitter
-    dark_count_rate_hz: float = 100.0  # Dark count rate per channel
-    
-    # System effects
-    dead_time_variation_percent: float = 5.0  # Dead time variation
-    trigger_jitter_ps: float = 5.0  # Trigger level jitter
-    temperature_drift_ppm_per_k: float = 1.0  # Temperature drift
-    
-    # Realism settings
-    enable_crosstalk: bool = True
-    crosstalk_probability: float = 0.001  # Probability of crosstalk event
-    enable_afterpulsing: bool = True
-    afterpulsing_probability: float = 0.01
-    afterpulsing_time_constant_ns: float = 100.0
 
 
 class TimeTaggerSimulator(BaseTimeTaggerDriver):
@@ -46,22 +26,43 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
     - Count rate measurements
     """
     
-    def __init__(self, config: TimeTaggerConfig, sim_config: Optional[SimulatorConfig] = None):
+    def __init__(self, config: TimeTaggerConfig, 
+                 dark_count_rate_hz: float = 100.0,
+                 timing_jitter_ps: float = 10.0,
+                 enable_crosstalk: bool = True,
+                 enable_afterpulsing: bool = True):
         """
         Initialize the time tagger simulator.
         
         Args:
             config: Time tagger configuration
-            sim_config: Simulator-specific configuration
+            dark_count_rate_hz: Dark count rate per channel (default: 100 Hz)
+            timing_jitter_ps: RMS timing jitter (default: 10 ps)
+            enable_crosstalk: Enable channel crosstalk simulation (default: True)
+            enable_afterpulsing: Enable afterpulsing simulation (default: True)
         """
         super().__init__(config)
-        self.sim_config = sim_config if sim_config is not None else SimulatorConfig()
+        
+        # Store simplified simulation parameters
+        self.dark_count_rate_hz = dark_count_rate_hz
+        self.timing_jitter_ps = timing_jitter_ps
+        self.enable_crosstalk = enable_crosstalk
+        self.enable_afterpulsing = enable_afterpulsing
+        
+        # Fixed defaults for other parameters (rarely changed)
+        self.dead_time_variation_percent = 5.0
+        self.trigger_jitter_ps = 5.0
+        self.crosstalk_probability = 0.001
+        self.afterpulsing_probability = 0.01
+        self.afterpulsing_time_constant_ns = 100.0
+        
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         
         # Simulation state
         self._event_buffer = Queue(maxsize=config.buffer_size)
         self._acquisition_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._is_measuring = False
         
         # Channel states
         self._channel_states = {ch_id: ChannelState.DISABLED for ch_id in config.channels.keys()}
@@ -148,7 +149,7 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
 
     def get_timestamps(self, max_events: Optional[int] = None) -> List[TimeStamp]:
         """Get collected timestamps from buffer."""
-        timestamps = []
+        timestamps : List[TimeStamp] = []
         count = 0
         
         while not self._event_buffer.empty() and (max_events is None or count < max_events):
@@ -159,8 +160,14 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
             except Empty:
                 break
         
-        # Update statistics
-        self._update_statistics(timestamps)
+        # Update statistics with retrieved timestamps
+        if timestamps:
+            self._stats['total_events'] += len(timestamps)
+            for ts in timestamps:
+                ch_id = ts.channel
+                if ch_id not in self._stats['events_per_channel']:
+                    self._stats['events_per_channel'][ch_id] = 0
+                self._stats['events_per_channel'][ch_id] += 1
         
         self.logger.debug(f"Retrieved {len(timestamps)} timestamps")
         return timestamps
@@ -191,9 +198,29 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
         """Get current state of a channel."""
         return self._channel_states.get(channel_id, ChannelState.ERROR)
 
+    def enable_channel(self, channel_id: int) -> bool:
+        """Enable a specific channel. Used for testing and examples."""
+        if channel_id in self.config.channels:
+            self.config.channels[channel_id].enabled = True
+            self._channel_states[channel_id] = ChannelState.ENABLED
+            self.logger.info(f"Channel {channel_id} enabled")
+            return True
+        self.logger.error(f"Channel {channel_id} not found")
+        return False
+    
+    def disable_channel(self, channel_id: int) -> bool:
+        """Disable a specific channel. Used for testing and examples."""
+        if channel_id in self.config.channels:
+            self.config.channels[channel_id].enabled = False
+            self._channel_states[channel_id] = ChannelState.DISABLED
+            self.logger.info(f"Channel {channel_id} disabled")
+            return True
+        self.logger.error(f"Channel {channel_id} not found")
+        return False
+
     def get_count_rates(self) -> Dict[int, float]:
         """Get count rates for all enabled channels."""
-        return self.stats.count_rates_hz.copy()
+        return self._stats['count_rates_hz'].copy()
 
     def clear_buffer(self) -> bool:
         """Clear the internal event buffer."""
@@ -221,17 +248,17 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
                 ch_id: {
                     "enabled": ch_config.enabled,
                     "state": self._channel_states[ch_id].value,
-                    "trigger_level_v": ch_config.trigger_level_v,
-                    "dead_time_ps": ch_config.dead_time_ps
+                    "trigger_level_v": 0.5,  # Default value
+                    "dead_time_ps": 50000  # Default value
                 }
                 for ch_id, ch_config in self.config.channels.items()
             },
             "measurement_active": self._is_measuring,
             "buffer_usage": self._event_buffer.qsize(),
             "statistics": {
-                "total_events": self.stats.total_events,
-                "measurement_time_s": self.stats.measurement_time_s,
-                "buffer_overflows": self.stats.buffer_overflows
+                "total_events": self._stats['total_events'],
+                "measurement_time_s": self._stats['measurement_time_s'],
+                "buffer_overflows": self._stats['buffer_overflows']
             }
         }
 
@@ -257,7 +284,7 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
                             self._event_buffer.put_nowait(event)
                         except:
                             # Buffer overflow
-                            self.stats.buffer_overflows += 1
+                            self._stats['buffer_overflows'] += 1
                             self.logger.warning(f"Buffer overflow, dropping event on channel {ch_id}")
                 
                 # Sleep for a short time to control event generation rate
@@ -292,7 +319,7 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
         events.extend(afterpulse_events)
         
         # Generate crosstalk events
-        if self.sim_config.enable_crosstalk:
+        if self.enable_crosstalk:
             crosstalk_events = self._generate_crosstalk_events(channel_id, current_time_ps)
             events.extend(crosstalk_events)
         
@@ -304,10 +331,10 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
             return False
         
         last_event_time = self._last_event_times[channel_id]
-        dead_time_ps = self.config.channels[channel_id].dead_time_ps
+        dead_time_ps = 50000  # Default dead time: 50ns
         
         # Add dead time variation
-        variation = np.random.normal(0, dead_time_ps * self.sim_config.dead_time_variation_percent / 100)
+        variation = np.random.normal(0, dead_time_ps * self.dead_time_variation_percent / 100)
         actual_dead_time = dead_time_ps + variation
         
         return (current_time_ps - last_event_time) < actual_dead_time
@@ -316,20 +343,20 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
         """Determine if a dark count should be generated."""
         # Calculate probability of dark count in 1 ms window
         time_window_s = 0.001
-        dark_prob = self.sim_config.dark_count_rate_hz * time_window_s
+        dark_prob = self.dark_count_rate_hz * time_window_s
         return np.random.random() < dark_prob
 
     def _generate_afterpulse_events(self, channel_id: int, current_time_ps: int) -> List[TimeStamp]:
         """Generate afterpulse events based on previous detections."""
         events = []
         
-        if not self.sim_config.enable_afterpulsing:
+        if not self.enable_afterpulsing:
             return events
         
         # Check afterpulse queue for this channel
         if channel_id in self._afterpulse_queues:
             # Remove expired afterpulse events
-            cutoff_time = current_time_ps - 10 * self.sim_config.afterpulsing_time_constant_ns * 1000
+            cutoff_time = current_time_ps - 10 * self.afterpulsing_time_constant_ns * 1000
             self._afterpulse_queues[channel_id] = [
                 t for t in self._afterpulse_queues[channel_id] if t > cutoff_time
             ]
@@ -337,8 +364,8 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
             # Check for afterpulse generation
             for prev_time in self._afterpulse_queues[channel_id]:
                 time_diff_ns = (current_time_ps - prev_time) / 1000
-                decay_factor = np.exp(-time_diff_ns / self.sim_config.afterpulsing_time_constant_ns)
-                afterpulse_prob = self.sim_config.afterpulsing_probability * decay_factor
+                decay_factor = np.exp(-time_diff_ns / self.afterpulsing_time_constant_ns)
+                afterpulse_prob = self.afterpulsing_probability * decay_factor
                 
                 if np.random.random() < afterpulse_prob:
                     event_time = self._apply_timing_jitter(current_time_ps)
@@ -364,7 +391,7 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
                 time_diff = current_time_ps - self._last_event_times[other_ch_id]
                 # Crosstalk is most likely shortly after events on other channels
                 if time_diff < 10000:  # Within 10 ns
-                    if np.random.random() < self.sim_config.crosstalk_probability:
+                    if np.random.random() < self.crosstalk_probability:
                         event_time = self._apply_timing_jitter(current_time_ps)
                         events.append(TimeStamp(
                             channel=channel_id,
@@ -377,7 +404,7 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
 
     def _apply_timing_jitter(self, ideal_time_ps: int) -> int:
         """Apply timing jitter to event time."""
-        jitter_ps = np.random.normal(0, self.sim_config.timing_jitter_ps)
+        jitter_ps = np.random.normal(0, self.timing_jitter_ps)
         return int(ideal_time_ps + jitter_ps)
 
     def _record_event_time(self, channel_id: int, event_time_ps: int) -> None:
@@ -423,15 +450,110 @@ class TimeTaggerSimulator(BaseTimeTaggerDriver):
 
     def set_dark_count_rate(self, rate_hz: float) -> None:
         """Set dark count rate for simulation."""
-        self.sim_config.dark_count_rate_hz = rate_hz
+        self.dark_count_rate_hz = rate_hz
         self.logger.info(f"Dark count rate set to {rate_hz} Hz")
 
     def enable_realistic_effects(self, enable: bool = True) -> None:
         """Enable or disable realistic physics effects."""
-        self.sim_config.enable_crosstalk = enable
-        self.sim_config.enable_afterpulsing = enable
+        self.enable_crosstalk = enable
+        self.enable_afterpulsing = enable
         self.logger.info(f"Realistic effects {'enabled' if enable else 'disabled'}")
 
-    def get_simulator_config(self) -> SimulatorConfig:
-        """Get current simulator configuration."""
-        return self.sim_config
+    def get_single_gate_counts(self) -> Dict[int, int]:
+        """Get counts for a single gate window (simulation)."""
+        # For simulation, return simulated counts based on current state
+        counts = {}
+        
+        # Generate some realistic counts based on dark count rates
+        for ch_id, ch_config in self.config.channels.items():
+            if ch_config.enabled:
+                # Simulate some random counts
+                if self._should_generate_dark_count():
+                    counts[ch_id] = np.random.poisson(1.0)  # Poisson-distributed count
+                else:
+                    counts[ch_id] = 0
+        
+        self.logger.debug(f"Simulated gate counts: {counts}")
+        return counts
+
+    def add_input_pulse(self, arrival_time_ps: int, polarization_degrees: float, 
+                       photon_count: int = 1) -> None:
+        """Add a simulated input pulse with given polarization."""
+        try:
+            # Determine which detector channels should fire based on polarization
+            # This is a simplified model - in reality, the polarization would determine
+            # the probability of detection in each detector
+            
+            # For BB84, we assume:
+            # 0° (H) -> detector 1, 90° (V) -> detector 2
+            # 45° (D) -> detector 3, 135° (A) -> detector 4
+            
+            if 0 <= polarization_degrees < 45:
+                # Mostly H polarized
+                channel_probs = {1: 0.9, 2: 0.1, 3: 0.5, 4: 0.5}
+            elif 45 <= polarization_degrees < 90:
+                # Mostly D polarized  
+                channel_probs = {1: 0.5, 2: 0.5, 3: 0.9, 4: 0.1}
+            elif 90 <= polarization_degrees < 135:
+                # Mostly V polarized
+                channel_probs = {1: 0.1, 2: 0.9, 3: 0.5, 4: 0.5}
+            else:
+                # Mostly A polarized
+                channel_probs = {1: 0.5, 2: 0.5, 3: 0.1, 4: 0.9}
+            
+            # Generate detection events based on probabilities
+            for ch_id, prob in channel_probs.items():
+                if ch_id in self.config.channels and self.config.channels[ch_id].enabled:
+                    if np.random.random() < prob * photon_count:
+                        jittered_time = self._apply_timing_jitter(arrival_time_ps)
+                        event = TimeStamp(
+                            channel=ch_id,
+                            time_ps=jittered_time,
+                            rising_edge=True
+                        )
+                        self._event_buffer.put_nowait(event)
+                        self._record_event_time(ch_id, jittered_time)
+            
+            self.logger.debug(f"Added input pulse: {polarization_degrees}° at {arrival_time_ps} ps")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to add input pulse: {e}")
+
+    def add_gate_trigger(self, trigger_time_ps: int) -> None:
+        """Add a gate trigger signal for synchronized detection."""
+        try:
+            # In simulation, we can just log this for debugging
+            # In a real implementation, this would configure gated detection windows
+            self.logger.debug(f"Gate trigger added at {trigger_time_ps} ps")
+            
+            # For simulation purposes, we could add a special trigger event
+            # to the buffer if needed for synchronization
+            
+        except Exception as e:
+            self.logger.error(f"Failed to add gate trigger: {e}")
+
+    def shutdown(self) -> bool:
+        """Shutdown the simulator."""
+        try:
+            # Stop measurement if running
+            if self._is_measuring:
+                self.stop_measurement()
+            
+            # Clear all state
+            self._channel_states.clear()
+            self._last_event_times.clear()
+            self._afterpulse_queues.clear()
+            
+            # Clear buffer
+            while not self._event_buffer.empty():
+                try:
+                    self._event_buffer.get_nowait()
+                except:
+                    break
+            
+            self.logger.info("TimeTagger simulator shutdown complete")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error during simulator shutdown: {e}")
+            return False
