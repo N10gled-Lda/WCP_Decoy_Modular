@@ -502,14 +502,14 @@ class BobCPU:
                 # Fallback to simple measurement
                 total_counts = self.timetagger_controller.measure_counts()
                 timebin_data = None
-                binwidth_ps = int(1e9)  # 1ms default
+                binwidth_ps = int(10e9)  # 10ms default
             
             measure_time = time.time() - measure_start
             self.logger.info(f"Measurement completed in {measure_time:.3f}s, total counts: {sum(total_counts.values())}")
             
             # Extract pulse-by-pulse data from time bins
             for pulse_id in range(self.num_expected_pulses):
-                timestamp = pulse_id * self.pulse_period_seconds
+                timestamp = pulse_id * self.pulse_period_seconds + self.pulse_period_seconds/2  # Approximate center time
                 
                 # Extract counts for this specific pulse from time-binned data
                 if timebin_data is not None:
@@ -571,6 +571,9 @@ class BobCPU:
             # Convert to bin indices
             start_bin = int(pulse_start_time_ps / binwidth_ps)
             end_bin = int(pulse_end_time_ps / binwidth_ps)
+
+            print(f"DEBUG: Extraction pulse {pulse_id}: time_start={pulse_start_time_ps}ps, time_end={pulse_end_time_ps}ps")
+            print(f"DEBUG: Extracting pulse {pulse_id}: start_bin={start_bin}, end_bin={end_bin}, binwidth_ps={binwidth_ps}")
             
             # Extract counts from the relevant time bins for each channel
             for i, channel in enumerate(self.detector_channels):
@@ -579,16 +582,21 @@ class BobCPU:
                     
                     # Sum counts in bins corresponding to this pulse period
                     pulse_total = 0
+                    print(f"DEBUG: Channel {channel} has {len(channel_bins)} bins")
                     for bin_idx in range(max(0, start_bin), min(len(channel_bins), end_bin + 1)):
                         pulse_total += channel_bins[bin_idx]
+                        print(f"DEBUG: Channel {channel}, bin {bin_idx}, count {channel_bins[bin_idx]}")
                     
                     pulse_counts[channel] = int(pulse_total)
+                    print(f"DEBUG: Channel {channel}, pulse {pulse_id}, total counts: {pulse_total}")
                 else:
                     pulse_counts[channel] = 0
             
             # Debug logging
             total_pulse_counts = sum(pulse_counts.values())
             if total_pulse_counts > 0:
+                print(f"DEBUG: Pulse {pulse_id} counts: {pulse_counts}")
+                print(f"DEBUG: Pulse {pulse_id}: extracted {total_pulse_counts} counts from bins {start_bin}-{end_bin}")
                 self.logger.debug(f"Pulse {pulse_id}: extracted {total_pulse_counts} counts from bins {start_bin}-{end_bin}")
                 
         except Exception as e:
