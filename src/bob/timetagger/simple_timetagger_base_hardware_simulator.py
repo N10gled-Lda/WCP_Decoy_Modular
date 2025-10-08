@@ -58,6 +58,7 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
         self.tagger = None
         self.counter = None
         self._measurement_duration = None  # Must be set before measuring
+        self.binwidth_ps = int(10e9)  # 10ms = 10e9 picoseconds (fine time resolution) 
         
         try:
             import TimeTagger as TimeTagger
@@ -237,7 +238,7 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
             return {
                 'counts_per_channel': counts_per_channel,
                 'timebin_data': timebin_data,  # Raw 2D array[channel][time_bin]
-                'binwidth_ps': int(1e9),  # 1ms in picoseconds 
+                'binwidth_ps': self.binwidth_ps,
                 'n_bins': len(timebin_data[0]) if timebin_data and len(timebin_data) > 0 else 0,
                 'channels': self.detector_channels
             }

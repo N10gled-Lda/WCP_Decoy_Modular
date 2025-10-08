@@ -19,8 +19,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 from src.utils.data_structures import Pulse, Basis, Bit
-from .timetagger.simple_timetagger_controller import SimpleTimeTaggerController
-from .timetagger.simple_timetagger_base_hardware_simulator import SimpleTimeTaggerHardware, SimpleTimeTaggerSimulator
+from src.bob.timetagger.simple_timetagger_controller import SimpleTimeTaggerController
+from src.bob.timetagger.simple_timetagger_base_hardware_simulator import SimpleTimeTaggerHardware, SimpleTimeTaggerSimulator
 
 # Protocol imports for classical communication and post-processing
 from src.protocol.qkd_bob_implementation_class import QKDBobImplementation
@@ -358,8 +358,9 @@ class BobCPU:
                 return False
             
             # Step 2: Setup classical communication
-            if not self.setup_classical_communication():
-                return False
+            if self.enable_post_processing:
+                if not self.setup_classical_communication():
+                    return False
             
             # Step 3: Setup mock transmitter if needed
             self.setup_mock_transmitter()
@@ -793,7 +794,7 @@ if __name__ == "__main__":
         bob_port=65433,
         shared_secret_key="IzetXlgAnY4oye56",
         # Post-processing parameters
-        enable_post_processing=True,
+        enable_post_processing=False,
         test_fraction=0.11,
         error_threshold=0.11,
         pa_compression_rate=0.5,

@@ -515,8 +515,9 @@ class AliceCPU:
                 return False
 
             # Setup network components
-            if not self.setup_classical_communication():
-                return False
+            if self.enable_post_processing:
+                if not self.setup_classical_communication():
+                    return False
             
             # Setup quantum channel server
             server = self.setup_quantum_channel_server(self.server_qch_host, self.server_qch_port)
