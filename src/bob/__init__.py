@@ -17,10 +17,10 @@ from .ot_components.simple_detectors import SimpleDetectorSystem, SimpleDetector
 # Time tagger components  
 from .timetagger import (
     TimeTaggerController, TimeTaggerControllerConfig,
-    TimeTaggerSimulator, SimulatorConfig,
+    TimeTaggerSimulator,
     TimeTaggerHardware,
     BaseTimeTaggerDriver, TimeStamp, ChannelConfig, 
-    TimeTaggerConfig, ChannelState, TimeTaggerStatistics
+    TimeTaggerConfig, ChannelState
 )
 
 __all__ = [
@@ -58,12 +58,10 @@ __all__ = [
     "TimeTaggerController",
     "TimeTaggerControllerConfig", 
     "TimeTaggerSimulator",
-    "SimulatorConfig",
     "TimeTaggerHardware",
     "BaseTimeTaggerDriver",
     "TimeStamp",
     "ChannelConfig",
     "TimeTaggerConfig",
-    "ChannelState", 
-    "TimeTaggerStatistics",
+    "ChannelState",
 ]

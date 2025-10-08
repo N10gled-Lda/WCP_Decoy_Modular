@@ -202,7 +202,9 @@ class BobCPU:
             raise RuntimeError("Failed to initialize TimeTagger controller")
 
         # Set measurement duration based on pulse period
-        measurement_duration = self.pulse_period_seconds * self.measurement_fraction
+        # TODO: CONFIRM WHAT IS THIS SUPPOSED TO BE
+        # measurement_duration = self.pulse_period_seconds * self.measurement_fraction
+        measurement_duration = self.pulse_period_seconds
         if not self.timetagger_controller.set_measurement_duration(measurement_duration):
             raise RuntimeError(f"Failed to set measurement duration to {measurement_duration}s")
 
@@ -502,7 +504,7 @@ class BobCPU:
                 # Fallback to simple measurement
                 total_counts = self.timetagger_controller.measure_counts()
                 timebin_data = None
-                binwidth_ps = int(10e9)  # 10ms default
+                binwidth_ps = int(100e9)  # 10ms default
             
             measure_time = time.time() - measure_start
             self.logger.info(f"Measurement completed in {measure_time:.3f}s, total counts: {sum(total_counts.values())}")
@@ -572,8 +574,7 @@ class BobCPU:
             start_bin = int(pulse_start_time_ps / binwidth_ps)
             end_bin = int(pulse_end_time_ps / binwidth_ps)
 
-            print(f"DEBUG: Extraction pulse {pulse_id}: time_start={pulse_start_time_ps}ps, time_end={pulse_end_time_ps}ps")
-            print(f"DEBUG: Extracting pulse {pulse_id}: start_bin={start_bin}, end_bin={end_bin}, binwidth_ps={binwidth_ps}")
+            print(f"  DEBUG: Extracting pulse {pulse_id}: start_bin={start_bin} (time={start_bin * binwidth_ps / 1e12}s), end_bin={end_bin-1} (time={end_bin * binwidth_ps / 1e12}s), binwidth={binwidth_ps / 1e12}s")
             
             # Extract counts from the relevant time bins for each channel
             for i, channel in enumerate(self.detector_channels):
@@ -582,23 +583,22 @@ class BobCPU:
                     
                     # Sum counts in bins corresponding to this pulse period
                     pulse_total = 0
-                    print(f"DEBUG: Channel {channel} has {len(channel_bins)} bins")
-                    for bin_idx in range(max(0, start_bin), min(len(channel_bins), end_bin + 1)):
+                    # print(f"DEBUG: Channel {channel} has {len(channel_bins)} bins")
+                    for bin_idx in range(max(0, start_bin), min(len(channel_bins), end_bin)):
                         pulse_total += channel_bins[bin_idx]
-                        print(f"DEBUG: Channel {channel}, bin {bin_idx}, count {channel_bins[bin_idx]}")
+                        # print(f"DEBUG: Channel {channel}, bin {bin_idx}, count {channel_bins[bin_idx]}")
                     
                     pulse_counts[channel] = int(pulse_total)
-                    print(f"DEBUG: Channel {channel}, pulse {pulse_id}, total counts: {pulse_total}")
+                    # print(f"DEBUG: Channel {channel}, pulse {pulse_id}, total counts: {pulse_total}")
                 else:
                     pulse_counts[channel] = 0
             
             # Debug logging
             total_pulse_counts = sum(pulse_counts.values())
             if total_pulse_counts > 0:
-                print(f"DEBUG: Pulse {pulse_id} counts: {pulse_counts}")
-                print(f"DEBUG: Pulse {pulse_id}: extracted {total_pulse_counts} counts from bins {start_bin}-{end_bin}")
-                self.logger.debug(f"Pulse {pulse_id}: extracted {total_pulse_counts} counts from bins {start_bin}-{end_bin}")
-                
+                print(f"    DEBUG: Pulse {pulse_id} counts: {pulse_counts} -> {total_pulse_counts} total from bins {start_bin}-{end_bin-1}")
+                self.logger.debug(f"Pulse {pulse_id} counts: {pulse_counts} -> {total_pulse_counts} total from bins {start_bin}-{end_bin-1}")
+
         except Exception as e:
             self.logger.error(f"Error extracting pulse {pulse_id} from timebin data: {e}")
             # Fallback: zero counts
@@ -782,14 +782,14 @@ if __name__ == "__main__":
     # Example configuration for complete QKD protocol
     config = BobConfig(
         # Detection parameters
-        num_expected_pulses=10,
+        num_expected_pulses=5,
         pulse_period_seconds=1,
         measurement_fraction=0.8,
         loss_rate=0.0,
         # Hardware parameters
-        use_hardware=False,
+        use_hardware=True,
         detector_channels=[1, 2, 3, 4],
-        dark_count_rate=100.0,
+        dark_count_rate=50.0,
         mode=BobMode.CONTINUOUS,
         # Quantum channel parameters
         use_mock_transmitter=True,

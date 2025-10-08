@@ -58,7 +58,13 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
         self.tagger = None
         self.counter = None
         self._measurement_duration = None  # Must be set before measuring
-        self.binwidth_ps = int(10e9)  # 10ms = 10e9 picoseconds (fine time resolution) 
+        
+        # For gated detectors: use SMALL binwidth to get time resolution
+        # Binwidth should be much smaller than measurement duration to capture 
+        # when during the measurement window the counts actually occurred        
+        self.binwidth_ps = int(100e9)  # 100ms = 100e9 picoseconds (fine time resolution) 
+        # self.binwidth_ps = int(duration_seconds )  # duration for single bin (no time structure) get me just the total counts of the measurement
+
         
         try:
             import TimeTagger as TimeTagger
@@ -108,14 +114,7 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
         try:
             # Clean up old counter if exists
             if self.counter:
-                self.counter = None
-            
-            # For gated detectors: use SMALL binwidth to get time resolution
-            # Binwidth should be much smaller than measurement duration to capture 
-            # when during the measurement window the counts actually occurred
-            self.binwidth_ps = int(10e9)  # 10ms = 10e9 picoseconds (fine time resolution)
-            
-            # self.binwidth_ps = int(duration_seconds )  # duration for single bin (no time structure) get me just the total counts of the measurement
+                self.counter = None            
             
             # Number of bins to cover the full measurement duration
             n_bins = int(duration_seconds * 1e12 / self.binwidth_ps)
@@ -156,7 +155,6 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
         try:
             # Clear any previous data
             self.counter.clear()
-            
             # Start measurement for the requested duration
             self.counter.startFor(int(self._measurement_duration * 1e12))  # Convert to picoseconds
             
@@ -216,17 +214,23 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
             return {'error': 'Counter not configured'}
         
         try:
+            self.set_measurement_duration(duration_seconds)
+            if not self.counter:
+                return {'error': 'Failed to set measurement duration'}
+            
             # Clear and measure (same as measure_for_duration)
             self.counter.clear()
             self.counter.startFor(int(duration_seconds * 1e12))
             
             # while self.counter.isRunning():
             #     time.sleep(0.001)
+            print(f" DEBUG: Waiting for measurement to finish (~{duration_seconds}s)...")
             self.counter.waitUntilFinished()
+            print(" DEBUG: Measurement finished.")
 
             # Get raw 2D time-binned data 
             timebin_data = self.counter.getData(rolling=False)
-            
+            print(f" DEBUG: Retrieved timebin data with shape {np.array(timebin_data).shape}")
             # Also compute total counts per channel
             counts_per_channel = {}
             for i, channel in enumerate(self.detector_channels):
@@ -235,15 +239,17 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
                 else:
                     counts_per_channel[channel] = 0
             
+            nbins = len(timebin_data[0]) if len(timebin_data) > 0 else 0
             return {
                 'counts_per_channel': counts_per_channel,
                 'timebin_data': timebin_data,  # Raw 2D array[channel][time_bin]
                 'binwidth_ps': self.binwidth_ps,
-                'n_bins': len(timebin_data[0]) if timebin_data and len(timebin_data) > 0 else 0,
+                'n_bins': nbins,
                 'channels': self.detector_channels
             }
             
         except Exception as e:
+            print(f" DEBUG: Error getting timebin data: {e}")
             return {'error': str(e)}
     
     def shutdown(self) -> None:
