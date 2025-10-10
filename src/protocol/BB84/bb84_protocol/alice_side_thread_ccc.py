@@ -652,8 +652,8 @@ class AliceThread():
         self.number_messages_received += 1
 
         self._alice_test_bits = [self._detected_bits[i] for i in self._common_test_indices]
-        logger.debug2(f"Thread id: {self._thread_id}: Bob test bits: {self._bob_test_bits}")
-        logger.debug2(f"Thread id: {self._thread_id}: Alice test bits: {self._alice_test_bits}")
+        logger.debug(f"Thread id: {self._thread_id}: Bob test bits: {self._bob_test_bits}")
+        logger.debug(f"Thread id: {self._thread_id}: Alice test bits: {self._alice_test_bits}")
 
     def test_eavesdropping(self) -> bool:
         assert len(self._alice_test_bits) == len(self._bob_test_bits), "Test bits length mismatch."

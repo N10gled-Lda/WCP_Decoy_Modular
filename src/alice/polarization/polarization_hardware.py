@@ -39,7 +39,7 @@ class PolarizationHardware(BasePolarizationDriver):
         try:
             if self.connected:
                 self.logger.warning("Already connected to STM32. Reinitializing...")
-                self.shutdown()
+                return True
                 
             if not self.com_port:
                 raise ValueError("COM port not specified")

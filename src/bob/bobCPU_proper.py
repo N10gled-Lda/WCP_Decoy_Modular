@@ -250,14 +250,24 @@ class BobCPU:
     # ===============================
     
     @staticmethod
-    def setup_quantum_channel_listener(host: str, port: int, timeout: float = 10.0) -> socket.socket:
-        """Setup quantum channel listener."""
-        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.settimeout(timeout)
-        listener.bind((host, port))
-        listener.listen(1)
-        return listener
+    def setup_quantum_channel_listener(host: str, port: int, timeout: float = 10.0, max_retries: int = 10) -> socket.socket:
+        """Setup quantum channel listener/client with retry logic."""
+        for attempt in range(max_retries):
+            try:
+                listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                listener.settimeout(timeout)
+                listener.connect((host, port))
+                return listener
+            except ConnectionRefusedError:
+                if attempt < max_retries - 1:
+                    print(f"Trying to connect to Alice at {host}:{port}... (Attempt {attempt + 1}/{max_retries})")
+                    time.sleep(1)  # Wait 1 second before retrying
+                    continue
+                else:
+                    raise ConnectionRefusedError(f"Could not connect to Alice at {host}:{port} after {max_retries} attempts")
+            except Exception as e:
+                listener.close()
+                raise e
 
     def setup_classical_communication(self) -> bool:
         """Setup classical communication channel."""
@@ -366,11 +376,10 @@ class BobCPU:
             
             # Step 3: Setup mock transmitter if needed
             self.setup_mock_transmitter()
-            
+
             # Step 4: Run quantum reception
             if not self.run_quantum_reception():
                 return False
-            
             # Step 5: Run post-processing if enabled
             if self.enable_post_processing:
                 if not self.run_post_processing():
@@ -383,6 +392,9 @@ class BobCPU:
             self.logger.error(f"QKD protocol failed: {e}")
             return False
         finally:
+            self.shutdown_components()
+            print("DEBUG: Completed shutdown components in run_complete_qkd_protocol. Waiting 3 seconds before closing server.")
+            time.sleep(3) # Wait to ensure all threads close properly
             self.cleanup_network_resources()
                  
     def run_quantum_reception(self) -> bool:
@@ -397,22 +409,12 @@ class BobCPU:
         try:
             if not self.initialize_system():
                 return False
+
+            self.quantum_connection = self.setup_quantum_channel_listener(self.listen_qch_host, self.listen_qch_port)
+            self.logger.info(f"Connected to Alice at {self.listen_qch_host}:{self.listen_qch_port}")
             
-            # Start listening for Alice
-            self.logger.info(f"Bob listening on {self.listen_qch_host}:{self.listen_qch_port}")
-            
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-                server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                server_socket.bind((self.listen_qch_host, self.listen_qch_port))
-                server_socket.listen(1)
-                
-                self.logger.info("Waiting for Alice to connect...")
-                connection, address = server_socket.accept()
-                
-                with connection:
-                    self.logger.info(f"Alice connected from {address}")
-                    return self.run_quantum_reception_with_connection(connection)
-                    
+            with self.quantum_connection:
+                return self.run_quantum_reception_with_connection(self.quantum_connection)
         except Exception as e:
             self.logger.error(f"Error in quantum reception: {e}")
             return False
@@ -643,14 +645,21 @@ class BobCPU:
             )
             
             # Run post-processing using Bob's classical process
-            final_key = self.classical_channel_participant_for_pp.bob_run_qkd_classical_process_threading(
+            self.classical_channel_participant_for_pp.bob_run_qkd_classical_process_threading(
                 detected_bits, detected_bases, detected_bits,  # qubits_bytes same as bits
                 detected_idxs, average_time_bin_ns,  # Use calculated time bin
                 True, self.test_fraction, self.pa_compression_rate
             )
 
-            if final_key:
+            self.classical_channel_participant_for_pp.bob_join_threads()
+            final_key = self.classical_channel_participant_for_pp.get_secured_key()
+            qber = self.classical_channel_participant_for_pp.get_qber()
+
+            if final_key is not None:
                 self.logger.info(f"Post-processing completed. Final key generated successfully")
+                self.logger.info(f" -----> FINAL KEY: {final_key} <----- ")
+                self.logger.info(f" -----> QBER: {qber} <----- ")
+
                 return True
             else:
                 self.logger.warning("Post-processing failed to generate a key")
@@ -685,28 +694,28 @@ class BobCPU:
                 if total_counts > 0:
                     # Use the actual pulse_id from results
                     detected_idxs.append(pulse_id)
-                    
-                    # For BB84: channels 1,2 = Z basis, channels 3,4 = X basis  
-                    z_counts = counts.get(1, 0) + counts.get(2, 0)
-                    x_counts = counts.get(3, 0) + counts.get(4, 0)
-                    
+
+                    # For BB84: channels 3,4 = Z basis, channels 1,2 = X basis
+                    z_counts = counts.get(3, 0) + counts.get(4, 0)
+                    x_counts = counts.get(1, 0) + counts.get(2, 0)
+
                     if z_counts > x_counts:
                         # Z basis measurement
                         detected_bases.append(0)  # Z basis = 0
-                        # Bit value: channel 1 = bit 0, channel 2 = bit 1
+                        # Bit value: channel 1 = bit 1, channel 2 = bit 0
                         if counts.get(1, 0) > counts.get(2, 0):
-                            detected_bits.append(0)
-                        else:
                             detected_bits.append(1)
+                        else:
+                            detected_bits.append(0)
                     else:
                         # X basis measurement  
                         detected_bases.append(1)  # X basis = 1
-                        # Bit value: channel 3 = bit 0, channel 4 = bit 1
+                        # Bit value: channel 3 = bit 1, channel 4 = bit 0
                         if counts.get(3, 0) > counts.get(4, 0):
-                            detected_bits.append(0)
-                        else:
                             detected_bits.append(1)
-            
+                        else:
+                            detected_bits.append(0)
+
             self.logger.debug(f"Converted {len(detected_bits)} detections from {len(self.results.pulse_counts)} pulses")
             self.logger.debug(f"Detection pulse IDs: {detected_idxs}")
             self.logger.debug(f"Detection bases: {detected_bases}")
@@ -728,15 +737,27 @@ class BobCPU:
     def cleanup_network_resources(self) -> None:
         """Cleanup network resources."""
         try:
-            self.stop_mock_transmitter()
+            # if self.classical_channel_participant_for_pp:
+            #     try:
+            #         self.logger.info("Stopping classical communication...")
+            #         self.classical_channel_participant_for_pp.bob_join_threads()
+            #         self.classical_channel_participant_for_pp._role_bob._stop_all_threads()
+            #     except (ConnectionResetError, OSError) as e:
+            #         # These are expected during shutdown when the other party closes first
+            #         self.logger.debug(f"Expected connection error during shutdown: {e}")
+            #     except Exception as e:
+            #         self.logger.error(f"Unexpected error stopping classical channel: {e}")
+
+            if self.use_mock_transmitter:
+                self.stop_mock_transmitter()
             
-            if self.quantum_connection:
-                self.quantum_connection.close()
-                self.quantum_connection = None
+            # if self.quantum_connection:
+            #     self.quantum_connection.close()
+            #     self.quantum_connection = None
                 
-            if self.quantum_server:
-                self.quantum_server.close()
-                self.quantum_server = None
+            # if self.quantum_server:
+            #     self.quantum_server.close()
+            #     self.quantum_server = None
                 
         except Exception as e:
             self.logger.error(f"Error cleaning up network resources: {e}")
@@ -782,8 +803,8 @@ if __name__ == "__main__":
     # Example configuration for complete QKD protocol
     config = BobConfig(
         # Detection parameters
-        num_expected_pulses=5,
-        pulse_period_seconds=1,
+        num_expected_pulses=100,
+        pulse_period_seconds=0.1,
         measurement_fraction=0.8,
         loss_rate=0.0,
         # Hardware parameters
@@ -792,19 +813,22 @@ if __name__ == "__main__":
         dark_count_rate=50.0,
         mode=BobMode.CONTINUOUS,
         # Quantum channel parameters
-        use_mock_transmitter=True,
-        listen_qch_host="localhost",
+        use_mock_transmitter=False,
+        # listen_qch_host="localhost",
+        listen_qch_host="10.127.1.178",
         listen_qch_port=12345,
         # Classical communication parameters
-        alice_ip="localhost",
+        # alice_ip="localhost",
+        alice_ip="10.127.1.178",
         alice_port=65432,
-        bob_ip="localhost", 
+        # bob_ip="localhost", 
+        bob_ip="10.127.1.177",
         bob_port=65433,
         shared_secret_key="IzetXlgAnY4oye56",
         # Post-processing parameters
-        enable_post_processing=False,
-        test_fraction=0.11,
-        error_threshold=0.11,
+        enable_post_processing=True,
+        test_fraction=0.25,
+        error_threshold=0.61,
         pa_compression_rate=0.5,
         num_threads=1
     )

@@ -50,6 +50,7 @@ class QKDBobImplementation:
         self._bob_thread_bs_objs = {}
         #   Adds the ER Object for each Thread: Idx -> Thread
         self._bob_thread_er_objs = {}
+        self._bob_thread_pa_objs = {}
 
     @staticmethod
     def read(role: Role, queues: list[queue.Queue]):
@@ -286,6 +287,9 @@ class QKDBobImplementation:
         _, _, secured_key = privacy_amplification_obj.do_privacy_amplification(initial_key_length, final_key_length)
         end_pa_time_tick = time.perf_counter()
 
+        self._bob_thread_pa_objs[thread_id] = privacy_amplification_obj
+        print(privacy_amplification_obj._secured_key)
+
         if __debug__:
             print(f"PA Bob Key Len ({len(secured_key)}):\n{secured_key}")
 
@@ -324,6 +328,20 @@ class QKDBobImplementation:
         self._threads_counter += 1
         bob_thread.start()
 
+    def get_corrected_key(self, thread_id=0):
+        if thread_id in self._bob_thread_er_objs:
+            return self._bob_thread_er_objs[thread_id].get_reconciled_key()
+        return None
+    
+    def get_secured_key(self, thread_id=0):
+        if thread_id in self._bob_thread_pa_objs:
+            return self._bob_thread_pa_objs[thread_id].get_secured_key()
+        return None
+
+    def get_qber(self, thread_id=0):
+        if thread_id in self._bob_thread_bs_objs:
+            return self._bob_thread_bs_objs[thread_id].failed_percentage
+        return None
 
     def bob_produce_statistical_data(self):
 

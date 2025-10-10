@@ -404,6 +404,7 @@ class AliceCPU:
     def setup_classical_communication(self) -> bool:
         """Setup classical communication channel. Creates the QKDAliceImplementation instance, and starts the communication thread (alice role)."""
         try:
+            print(f"DEBUG: Setting up classical communication channel to Bob at {self.bob_ip}:{self.bob_port} from Alice at {self.alice_ip}:{self.alice_port}")
             self.classical_channel_participant_for_pp = QKDAliceImplementation(
                 self.alice_ip, self.alice_port, 
                 self.bob_ip, self.bob_port, 
@@ -546,6 +547,8 @@ class AliceCPU:
             return False
         finally:
             self.shutdown_components()
+            print("DEBUG: Completed shutdown components in run_complete_qkd_protocol. Waiting 3 seconds before closing server.")
+            time.sleep(3)  # Wait a bit to ensure all data is sent/received
             self.cleanup_network_resources()
             if self.use_mock_receiver:
                 self.stop_mock_receiver()
@@ -740,12 +743,19 @@ class AliceCPU:
             alice_bases = [int(basis) for basis in self.results.bases]
             
             # Run post-processing
-            final_key = self.classical_channel_participant_for_pp.alice_run_qkd_classical_process_threading(
+            self.classical_channel_participant_for_pp.alice_run_qkd_classical_process_threading(
                 alice_bits, alice_bases, True, self.test_fraction, self.error_threshold, self.pa_compression_rate
             )
+            
+            # Wait for all threads to finish
+            self.classical_channel_participant_for_pp.alice_join_threads()
+            final_key = self.classical_channel_participant_for_pp.get_secured_key()
+            qber = self.classical_channel_participant_for_pp.get_qber()
 
-            if final_key:
+            if final_key is not None:
                 self.logger.info(f"Post-processing completed. Final key length: {len(final_key)}")
+                self.logger.info(f" -----> FINAL KEY: {final_key} <----- ")
+                self.logger.info(f" -----> QBER: {qber:.2f}% <----- ")
                 return True
             else:
                 self.logger.warning("Post-processing failed to generate a key")
@@ -766,26 +776,32 @@ class AliceCPU:
 
     def cleanup_network_resources(self) -> None:
         """Cleanup network resources."""
-        if self.quantum_connection:
-            try:
-                self.quantum_connection.close()
-            except Exception as e:
-                self.logger.error(f"Error closing quantum connection: {e}")
+        # if self.classical_channel_participant_for_pp:
+        #     try:
+        #         self.logger.info("Stopping classical communication...")
+        #         self.classical_channel_participant_for_pp.alice_join_threads()
+        #         self.classical_channel_participant_for_pp._role_alice._stop_all_threads()
+        #     except (ConnectionResetError, OSError) as e:
+        #         # These are expected during shutdown when the other party closes first
+        #         self.logger.debug(f"Expected connection error during shutdown: {e}")
+        #     except Exception as e:
+        #         self.logger.error(f"Unexpected error stopping classical channel: {e}")
         
-        if self.quantum_server:
-            try:
-                self.quantum_server.close()
-            except Exception as e:
-                self.logger.error(f"Error closing quantum server: {e}")
+        # if self.quantum_connection:
+        #     try:
+        #         self.quantum_connection.close()
+        #     except Exception as e:
+        #         self.logger.error(f"Error closing quantum connection: {e}")
         
-        if self.classical_channel_participant_for_pp:
-            try:
-                self.classical_channel_participant_for_pp.alice_join_threads()
-                self.classical_channel_participant_for_pp._role_alice._stop_all_threads()
-            except Exception as e:
-                self.logger.error(f"Error stopping classical channel: {e}")
-        
-        self.stop_mock_receiver()
+        # if self.quantum_server:
+        #     try:
+        #         self.quantum_server.close()
+        #     except Exception as e:
+        #         self.logger.error(f"Error closing quantum server: {e}")
+    
+        if self.use_mock_receiver:
+            self.stop_mock_receiver()
+    
         self.logger.info("Network resources cleaned up")
    
 
@@ -840,8 +856,8 @@ if __name__ == "__main__":
     # Example configuration for complete QKD protocol
     config = AliceConfig(
         # Quantum transmission parameters
-        num_pulses=10,
-        pulse_period_seconds=1,  # 1 second between pulses
+        num_pulses=100,
+        pulse_period_seconds=0.1,  # 1 second between pulses
         use_hardware=False,  # Set to True for actual hardware
         com_port="COM4",  # Replace with actual COM port for polarization hardware
         laser_channel=8,  # Replace with actual digital channel for laser hardware
@@ -849,21 +865,24 @@ if __name__ == "__main__":
         qrng_seed=42,
         
         # Network configuration
-        use_mock_receiver=True,  # For testing without actual Bob
-        server_qch_host="localhost",
+        use_mock_receiver=False,  # For testing without actual Bob
+        # server_qch_host="localhost",
+        server_qch_host="10.127.1.178",
         server_qch_port=12345,
         
         # Classical communication
-        alice_ip="localhost",
+        # alice_ip="localhost",
+        alice_ip="10.127.1.178",
         alice_port=65432,
-        bob_ip="localhost", 
+        # bob_ip="localhost", 
+        bob_ip="10.127.1.177", 
         bob_port=65433,
         shared_secret_key="IzetXlgAnY4oye56",
         
         # Post-processing
         enable_post_processing=True,
-        test_fraction=0.11,
-        error_threshold=0.11,
+        test_fraction=0.25,
+        error_threshold=0.61,
         pa_compression_rate=0.5
     )
     

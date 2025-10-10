@@ -46,6 +46,7 @@ class QKDAliceImplementation:
         self._alice_thread_bs_objs = {}
         #   Adds the ER Object for each Thread: Idx -> Thread
         self._alice_thread_er_objs = {}
+        self._alice_thread_pa_objs = {}
 
 
 
@@ -277,6 +278,8 @@ class QKDAliceImplementation:
         _, _, secured_key = privacy_amplification_obj.do_privacy_amplification(initial_key_length, final_key_length)
         end_pa_time_tick = time.perf_counter()
 
+        self._alice_thread_pa_objs[thread_id] = privacy_amplification_obj
+
         if __debug__:
             print(f"PA Alice Key Len ({len(secured_key)}):\n{secured_key}")
         # TODO: Calculate Execution Times
@@ -307,6 +310,26 @@ class QKDAliceImplementation:
         self._threads_counter += 1
         alice_thread.start()
 
+    def get_corrected_key(self, thread_id=0):
+        """Returns the final key of a specific thread"""
+        if thread_id in self._alice_thread_er_objs:
+            return self._alice_thread_er_objs[thread_id].correct_key.generate_array()
+        else:
+            return None
+        
+    def get_secured_key(self, thread_id=0):
+        """Returns the final secured key of a specific thread"""
+        if thread_id in self._alice_thread_pa_objs:
+            return self._alice_thread_pa_objs[thread_id].get_secured_key()
+        else:
+            return None
+        
+    def get_qber(self, thread_id=0):
+        """Returns the QBER of a specific thread"""
+        if thread_id in self._alice_thread_bs_objs:
+            return self._alice_thread_bs_objs[thread_id].failed_percentage
+        else:
+            return None
 
     def alice_produce_statistical_data(self, use_mac=True):
         """This method simply comprises in printing and showing data"""
