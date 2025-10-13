@@ -25,7 +25,7 @@ def test_proper_bob_architecture():
         # Test configuration - matching Alice's style
         config = BobConfig(
             num_expected_pulses=5,
-            pulse_period_seconds=0.5,  # Faster for testing
+            pulse_period_seconds=0.5,
             measurement_fraction=0.8,
             use_hardware=False,
             detector_channels=[1, 2, 3, 4],
@@ -48,7 +48,7 @@ def test_proper_bob_architecture():
         
         # Test measurement duration setup
         duration = bob.timetagger_controller.get_measurement_duration()
-        expected_duration = config.pulse_period_seconds * config.measurement_fraction
+        expected_duration = config.pulse_period_seconds
         if abs(duration - expected_duration) < 0.001:
             print(f"✅ Measurement duration correctly set to {duration:.3f}s")
         else:

@@ -178,13 +178,13 @@ class QKDBobImplementation:
 
         return Reconciliation Object.
          """
-        qber_percentage = bob_ccc.failed_percentage  # int
+        qber_percentage = bob_ccc.failed_percentage  if bob_ccc is not None else 0.0
         qber_flt = round(qber_percentage / 100, 2)
 
         if qber_flt == 0.0:
             qber_flt = 0.01
 
-        bob_key = bob_ccc.final_key
+        bob_key = bob_ccc.final_key if bob_ccc is not None else []
 
         noisy_key = Key.create_key_from_list(bob_key)
 
@@ -267,6 +267,11 @@ class QKDBobImplementation:
         end_bs_time_tick = time.perf_counter()
 
         start_er_time_tick = time.perf_counter()
+
+        if bob_ccc is None:
+            print(f"Thread {thread_id} - Key Rejected due to High QBER.")
+            return
+        
         bob_er = self.bob_process_error_correction_classical_steps(bob_ccc, self._role_bob, receive_queue,
                                                                    thread_id=thread_id)
         end_er_time_tick = time.perf_counter()

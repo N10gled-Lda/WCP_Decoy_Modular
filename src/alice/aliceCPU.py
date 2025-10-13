@@ -547,8 +547,8 @@ class AliceCPU:
             return False
         finally:
             self.shutdown_components()
-            print("DEBUG: Completed shutdown components in run_complete_qkd_protocol. Waiting 3 seconds before closing server.")
-            time.sleep(3)  # Wait a bit to ensure all data is sent/received
+            print("DEBUG: Completed shutdown components in run_complete_qkd_protocol. Waiting 2 seconds before closing server.")
+            time.sleep(2)  # Wait a bit to ensure all data is sent/received
             self.cleanup_network_resources()
             if self.use_mock_receiver:
                 self.stop_mock_receiver()
@@ -867,16 +867,16 @@ if __name__ == "__main__":
         # Network configuration
         use_mock_receiver=False,  # For testing without actual Bob
         # server_qch_host="localhost",
-        server_qch_host="10.127.1.178",
+        server_qch_host="127.0.0.1", 
         server_qch_port=12345,
         
         # Classical communication
         # alice_ip="localhost",
-        alice_ip="10.127.1.178",
-        alice_port=65432,
+        alice_ip="127.0.0.1",
+        alice_port=54321,
         # bob_ip="localhost", 
-        bob_ip="10.127.1.177", 
-        bob_port=65433,
+        bob_ip="127.0.0.1", 
+        bob_port=54322,
         shared_secret_key="IzetXlgAnY4oye56",
         
         # Post-processing

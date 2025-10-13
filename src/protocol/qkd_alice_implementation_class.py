@@ -259,6 +259,10 @@ class QKDAliceImplementation:
                                                                     receive_queue, thread_id=thread_id, alice_bits=alice_bits, alice_bases=alice_bases, alice_qubytes=alice_bits)
         end_bs_time_tick = time.perf_counter()
 
+        if alice_ccc.failed_percentage > error_threshold and alice_ccc.final_key == []:
+            print(f"Thread {thread_id} - Key Rejected due to High QBER.")
+            return
+
         start_er_time_tick = time.perf_counter()
         alice_er = self.alice_process_error_correction_classical_steps(alice_ccc, self._role_alice, receive_queue, thread_id=thread_id)
         end_er_time_tick = time.perf_counter()
