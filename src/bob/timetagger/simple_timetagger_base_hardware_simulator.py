@@ -45,6 +45,16 @@ class SimpleTimeTagger(ABC):
         pass
     
     @abstractmethod
+    def set_measurement_duration(self, duration_seconds: float) -> bool:
+        """Set measurement duration and configure counter."""
+        pass
+    
+    @abstractmethod
+    def get_timebin_data(self, duration_seconds: float) -> Dict[str, any]:
+        """Get raw time-binned data for advanced analysis."""
+        pass
+    
+    @abstractmethod
     def shutdown(self) -> None:
         """Shutdown the timetagger."""
         pass
@@ -265,63 +275,237 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
 
 
 class SimpleTimeTaggerSimulator(SimpleTimeTagger):
-    """Simulator implementation for testing."""
+    """
+    Simulator implementation that closely replicates hardware behavior.
+    Includes time-binned data structure, proper counter management, and realistic timing.
+    """
     
-    def __init__(self, detector_channels: list = None, dark_count_rate: float = 100.0):
+    def __init__(self, detector_channels: list = None, dark_count_rate: float = 100.0, 
+                 signal_count_rate: float = 50.0, signal_probability: float = 0.1):
         super().__init__(detector_channels)
-        self.dark_count_rate = dark_count_rate  # counts per second per channel
+        
+        # Simulation parameters
+        self.dark_count_rate = dark_count_rate  # counts per second per channel (background)
+        self.signal_count_rate = signal_count_rate  # additional counts per second when signal present
+        self.signal_probability = signal_probability  # probability of signal being present in a time bin
+        
+        # Mirror hardware attributes
+        self.tagger = None  # Simulated tagger object
+        self.counter = None  # Simulated counter object
         self._measurement_duration = None
         self.initialized = False
+        
+        # Match hardware binning parameters
+        self.binwidth_ps = int(100e9)  # 100ms = 100e9 picoseconds (same as hardware)
+        
+        # Simulation state
+        self._last_timebin_data = None  # Store last measurement's time-binned data
     
     def initialize(self) -> bool:
-        """Initialize simulator."""
-        self.initialized = True
-        self.logger.info("TimeTagger simulator initialized")
-        return True
-    
-    def measure_for_duration(self, duration_seconds: float) -> Dict[int, int]:
-        """Simulate measurement with random counts."""
-        if not self.initialized:
-            return {ch: 0 for ch in self.detector_channels}
-        
-        if self._measurement_duration is None:
-            self.logger.warning("Measurement duration not set. Using requested duration.")
-            self._measurement_duration = duration_seconds
-        else:
-            if abs(duration_seconds - self._measurement_duration) > 0.001:
-                self.logger.warning(f"Requested duration {duration_seconds}s differs from set {self._measurement_duration}s. Updating.")
-                self.set_measurement_duration(duration_seconds)
-        
-        counts = {}
-        for channel in self.detector_channels:
-            # Simulate dark counts + occasional signal
-            expected_dark = self.dark_count_rate * self._measurement_duration
-            # Add some randomness
-            actual_counts = max(0, int(np.random.poisson(expected_dark)))
+        """Initialize simulator (mimic hardware initialization flow)."""
+        try:
+            # Simulate hardware scanning/connection
+            print("Simulating TimeTagger scan...")
+            time.sleep(0.01)  # Very brief delay to mimic hardware scan
             
-            # Occasionally add a "signal" count (10% chance)
-            if random.random() < 0.1:
-                actual_counts += random.randint(1, 5)
+            # Create simulated tagger
+            self.tagger = "SimulatedTagger"  # Placeholder object
+            self.initialized = True
             
-            counts[channel] = actual_counts
-        
-        # Simulate measurement time
-        time.sleep(min(self._measurement_duration, 0.1))  # Don't actually wait full time in simulation
-        
-        return counts
+            self.logger.info("TimeTagger simulator initialized (counter will be created when measurement duration is set)")
+            print("Simulated TimeTagger connected successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize simulator: {e}")
+            return False
     
     def set_measurement_duration(self, duration_seconds: float) -> bool:
-        """Set measurement duration (not strictly needed in simulator)."""
-        if duration_seconds <= 0:
-            self.logger.error("Duration must be positive")
+        """
+        Set measurement duration and create simulated counter (mirrors hardware behavior).
+        """
+        if not self.tagger:
+            self.logger.error("Tagger not initialized")
             return False
-        self._measurement_duration = duration_seconds
-        return True
+            
+        try:
+            # Clean up old counter if exists (mimic hardware)
+            if self.counter:
+                self.counter = None
+            
+            # Calculate bins (same logic as hardware)
+            n_bins = int(duration_seconds * 1e12 / self.binwidth_ps)
+            
+            # Create simulated counter configuration
+            self.counter = {
+                'channels': self.detector_channels.copy(),
+                'binwidth_ps': self.binwidth_ps,
+                'n_bins': n_bins,
+                'duration_seconds': duration_seconds,
+                'configured': True
+            }
+            
+            self._measurement_duration = duration_seconds
+            self.logger.info(f"Counter configured for {duration_seconds}s measurements with {n_bins} bins of {self.binwidth_ps/1e9:.1f}ms each")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to set measurement duration: {e}")
+            return False
+    
+    def measure_for_duration(self, duration_seconds: float) -> Dict[int, int]:
+        """
+        Simulate measurement with time-binned structure (mirrors hardware exactly).
+        """
+        if not self.counter:
+            self.logger.error("Counter not configured. Call set_measurement_duration() first")
+            return {ch: 0 for ch in self.detector_channels}
+        
+        # Check if duration matches configured duration (same as hardware)
+        if self._measurement_duration and abs(duration_seconds - self._measurement_duration) > 0.001:
+            self.logger.warning(f"Requested duration {duration_seconds}s differs from configured {self._measurement_duration}s. Setting new duration.")
+            self.set_measurement_duration(duration_seconds)
+            if not self.counter:
+                return {ch: 0 for ch in self.detector_channels}
 
-    def get_measurement_duration(self) -> float:
-        """Get measurement duration (not strictly needed in simulator)."""
+        try:
+            # Simulate hardware measurement process
+            print(f" DEBUG: Starting simulated measurement for {self._measurement_duration}s...")
+            
+            # Generate time-binned data (same structure as hardware returns)
+            timebin_data = self._generate_timebin_data()
+            self._last_timebin_data = timebin_data  # Store for get_timebin_data()
+            
+            # Process the 2D array exactly like hardware does
+            counts = {}
+            print(f" DEBUG: Length of data {len(timebin_data)}")
+            
+            for i, channel in enumerate(self.detector_channels):
+                print(f" DEBUG: Processing channel {channel}")
+                if i < len(timebin_data):
+                    # timebin_data[i] is the array of time bins for this channel
+                    time_bins = timebin_data[i]  # Array of counts per time bin
+                    total_counts = sum(time_bins)  # Sum all bins for total counts
+                    counts[channel] = int(total_counts)
+                    
+                    # Debug: show time structure (same as hardware)
+                    if total_counts > 0:
+                        non_zero_bins = [(bin_idx, int(count)) for bin_idx, count in enumerate(time_bins) if count > 0]
+                        bin_time_s = [(bin_idx * self.binwidth_ps / 1e12) for bin_idx, _ in non_zero_bins]
+                        self.logger.debug(f"Channel {channel}: {total_counts} total counts in {len(non_zero_bins)} bins: {non_zero_bins}")
+                        self.logger.debug(f"  Bin times: {[f'{t:.1f}s' for t in bin_time_s]}")
+                        print(f" DEBUG: Channel {channel}: {total_counts} counts at times {[f'{t:.1f}s' for t in bin_time_s]}")
+                    else:
+                        self.logger.debug(f"Channel {channel}: No counts detected")
+                        print(f" DEBUG: Channel {channel}: No counts")
+                else:
+                    counts[channel] = 0
+                    print(f" DEBUG: Channel {channel}: No data available")
+            
+            # Simulate realistic measurement time
+            measurement_time = min(self._measurement_duration * 0.1, 0.2)  # Much faster for simulation
+            time.sleep(measurement_time)
+            
+            return counts
+            
+        except Exception as e:
+            self.logger.error(f"Measurement failed: {e}")
+            return {ch: 0 for ch in self.detector_channels}
+    
+    def get_timebin_data(self, duration_seconds: float) -> Dict[str, any]:
+        """
+        Get raw time-binned data for advanced analysis (mirrors hardware method exactly).
+        """
+        if not self.counter:
+            return {'error': 'Counter not configured'}
+        
+        try:
+            self.set_measurement_duration(duration_seconds)
+            if not self.counter:
+                return {'error': 'Failed to set measurement duration'}
+            
+            # Simulate measurement process (same as measure_for_duration)
+            print(f" DEBUG: Waiting for measurement to finish (~{duration_seconds}s)...")
+            
+            # Generate time-binned data
+            timebin_data = self._generate_timebin_data()
+            print(f" DEBUG: Retrieved timebin data with shape {np.array(timebin_data).shape}")
+            
+            # Compute total counts per channel (same logic as hardware)
+            counts_per_channel = {}
+            for i, channel in enumerate(self.detector_channels):
+                if i < len(timebin_data):
+                    counts_per_channel[channel] = sum(timebin_data[i])
+                else:
+                    counts_per_channel[channel] = 0
+            
+            # Simulate measurement time
+            measurement_time = min(duration_seconds * 0.1, 0.2)  # Much faster for simulation
+            time.sleep(measurement_time)
+            print(" DEBUG: Measurement finished.")
+            
+            nbins = len(timebin_data[0]) if len(timebin_data) > 0 else 0
+            return {
+                'counts_per_channel': counts_per_channel,
+                'timebin_data': timebin_data,  # Raw 2D array[channel][time_bin] 
+                'binwidth_ps': self.binwidth_ps,
+                'n_bins': nbins,
+                'channels': self.detector_channels
+            }
+            
+        except Exception as e:
+            print(f" DEBUG: Error getting timebin data: {e}")
+            return {'error': str(e)}
+    
+    def _generate_timebin_data(self) -> list:
+        """
+        Generate realistic time-binned data that mimics hardware behavior.
+        
+        Returns:
+            List[List[int]]: 2D array where data[channel_idx][time_bin_idx] = count
+        """
+        n_bins = self.counter['n_bins']
+        bin_duration_s = self.binwidth_ps / 1e12  # Convert to seconds
+        
+        timebin_data = []
+        
+        for channel in self.detector_channels:
+            channel_bins = []
+            
+            for bin_idx in range(n_bins):
+                # Simulate dark counts (always present, Poisson distributed)
+                expected_dark = self.dark_count_rate * bin_duration_s
+                dark_counts = max(0, int(np.random.poisson(expected_dark)))
+                
+                # Simulate signal counts (occasionally present)
+                signal_counts = 0
+                if random.random() < self.signal_probability:
+                    expected_signal = self.signal_count_rate * bin_duration_s
+                    signal_counts = max(0, int(np.random.poisson(expected_signal)))
+                
+                total_counts = dark_counts + signal_counts
+                channel_bins.append(total_counts)
+            
+            timebin_data.append(channel_bins)
+        
+        return timebin_data
+    
+    def get_measurement_duration(self) -> Optional[float]:
+        """Get current measurement duration."""
+        return self._measurement_duration
+
+    def get_measurement_duration(self) -> Optional[float]:
+        """Get current measurement duration."""
         return self._measurement_duration
 
     def shutdown(self) -> None:
-        """Shutdown simulator."""
-        self.initialized = False
+        """Shutdown simulator (mirrors hardware cleanup)."""
+        try:
+            if self.counter:
+                self.counter = None
+            if self.tagger:
+                self.tagger = None
+            self.initialized = False
+            self.logger.info("TimeTagger simulator shutdown complete")
+        except Exception as e:
+            self.logger.error(f"Shutdown error: {e}")
