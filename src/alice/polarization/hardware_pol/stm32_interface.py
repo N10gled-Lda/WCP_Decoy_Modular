@@ -147,81 +147,86 @@ class STM32Interface:
 
     def _handler_loop(self):
         while self.running:
-            while not self.receive_queue.empty():
+            try:
                 msg = self.receive_queue.get()
-                print(f"Handler received: {msg}")  # <-- Print the received message                
-                # Check if msg is a dict (valid message) or a list (error response)
-                if isinstance(msg, dict):
-                    cmd = msg['cmd']
-                    is_response = msg['is_response']
-                    sub_cmd = msg['sub_cmd']
-                    length = msg['length']
-                    payload = msg['payload']
+            except Empty:
+                # sleep(0.01)
+                continue
 
-                    if cmd == Command.COMMAND_CONNECTION:
-                        if sub_cmd == SubCommandConnection.SUB_COMMAND_CONNECTION_CONNECT and is_response:
-                            if payload[0] == CommandStatus.COMMAND_VALID:
-                                self.connected = True
-                                if self.on_connected:
-                                    self.on_connected()
-                                    print("Connected to STM32")
-                            elif payload[0] == CommandStatus.MISSING_CONNECTION:
-                                self.connect()
-                                print("Missing connection, retrying...")
-                            elif payload[0] == CommandStatus.COMMAND_INVALID:
-                                # TODO
-                                pass
-                            else:
-                                # TODO
-                                pass
-                    elif cmd == Command.COMMAND_POLARIZATION:
-                        if sub_cmd == SubCommandPolarization.SUB_COMMAND_POLARIZATION_NUMBERS:
-                            if payload[0] == CommandStatus.COMMAND_VALID:
-                                self.available = True
-                                if self.on_available:
-                                    self.on_available()
-                            elif payload[0] == CommandStatus.COMMAND_INVALID:
-                                self
-                                # TODO
-                                pass
-                            else:
-                                # TODO
-                                pass
-                        elif sub_cmd == SubCommandPolarization.SUB_COMMAND_POLARIZATION_DEVICE:
-                            if payload[0] == CommandStatus.COMMAND_VALID:
-                                if self.on_available:
-                                    self.on_available()
-                                pass
-                            elif payload[0] == CommandStatus.COMMAND_INVALID:
-                                # TODO
-                                pass
-                            else:
-                                # TODO
-                                pass
-                    elif cmd == Command.COMMAND_ANGLE:
-                        if sub_cmd == SubCommandAngle.SUB_COMMAND_SET_OFFSET:
-                            if payload[0] == CommandStatus.COMMAND_VALID:
-                                self.available = True
-                                if self.on_available:
-                                    self.on_available()
-                            elif payload[0] == CommandStatus.COMMAND_INVALID:
-                                # TODO
-                                pass
-                            else:
-                                # TODO
-                                pass
-                        elif sub_cmd == SubCommandAngle.SUB_COMMAND_SET_ANGLE:
-                            # Handle angle setting
-                            if payload[0] == CommandStatus.COMMAND_VALID:
-                                self.available = True
-                                if self.on_available:
-                                    self.on_available()
-                            elif payload[0] == CommandStatus.COMMAND_INVALID:
-                                # TODO
-                                pass
-                            else:
-                                # TODO
-                                pass
+            print(f"Handler received: {msg}")  # <-- Print the received message
+            # Check if msg is a dict (valid message) or a list (error response)
+            if isinstance(msg, dict):
+                cmd = msg['cmd']
+                is_response = msg['is_response']
+                sub_cmd = msg['sub_cmd']
+                length = msg['length']
+                payload = msg['payload']
+
+                if cmd == Command.COMMAND_CONNECTION:
+                    if sub_cmd == SubCommandConnection.SUB_COMMAND_CONNECTION_CONNECT and is_response:
+                        if payload[0] == CommandStatus.COMMAND_VALID:
+                            self.connected = True
+                            if self.on_connected:
+                                self.on_connected()
+                                print("Connected to STM32")
+                        elif payload[0] == CommandStatus.MISSING_CONNECTION:
+                            self.connect()
+                            print("Missing connection, retrying...")
+                        elif payload[0] == CommandStatus.COMMAND_INVALID:
+                            # TODO
+                            pass
+                        else:
+                            # TODO
+                            pass
+                elif cmd == Command.COMMAND_POLARIZATION:
+                    if sub_cmd == SubCommandPolarization.SUB_COMMAND_POLARIZATION_NUMBERS:
+                        if payload[0] == CommandStatus.COMMAND_VALID:
+                            self.available = True
+                            if self.on_available:
+                                self.on_available()
+                        elif payload[0] == CommandStatus.COMMAND_INVALID:
+                            self
+                            # TODO
+                            pass
+                        else:
+                            # TODO
+                            pass
+                    elif sub_cmd == SubCommandPolarization.SUB_COMMAND_POLARIZATION_DEVICE:
+                        if payload[0] == CommandStatus.COMMAND_VALID:
+                            self.available = True
+                            if self.on_available:
+                                self.on_available()
+                            pass
+                        elif payload[0] == CommandStatus.COMMAND_INVALID:
+                            # TODO
+                            pass
+                        else:
+                            # TODO
+                            pass
+                elif cmd == Command.COMMAND_ANGLE:
+                    if sub_cmd == SubCommandAngle.SUB_COMMAND_SET_OFFSET:
+                        if payload[0] == CommandStatus.COMMAND_VALID:
+                            self.available = True
+                            if self.on_available:
+                                self.on_available()
+                        elif payload[0] == CommandStatus.COMMAND_INVALID:
+                            # TODO
+                            pass
+                        else:
+                            # TODO
+                            pass
+                    elif sub_cmd == SubCommandAngle.SUB_COMMAND_SET_ANGLE:
+                        # Handle angle setting
+                        if payload[0] == CommandStatus.COMMAND_VALID:
+                            self.available = True
+                            if self.on_available:
+                                self.on_available()
+                        elif payload[0] == CommandStatus.COMMAND_INVALID:
+                            # TODO
+                            pass
+                        else:
+                            # TODO
+                            pass
                 elif cmd == Command.COMMAND_FREQUENCY:
                     if sub_cmd == SubCommandFrequency.SUB_COMMAND_SET_OPERATION_FREQUENCY:
                         if payload[0] == CommandStatus.COMMAND_VALID:
