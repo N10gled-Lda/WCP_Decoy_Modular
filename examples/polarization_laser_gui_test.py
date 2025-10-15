@@ -6,7 +6,7 @@ import sys
 import os
 
 # Add the project root to Python path
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 import customtkinter as ctk
@@ -30,6 +30,7 @@ import serial.tools.list_ports
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+USE_SIMULATION = True  # Set to True to use simulated laser driver
 
 def run_in_background(func):
     """Decorator to run hardware operations in background thread"""
@@ -149,9 +150,12 @@ class PolarizationControllerGUI(ctk.CTk):
         conn_label = ctk.CTkLabel(conn_frame, text="Polarization Hardware Control", 
                                  font=ctk.CTkFont(size=16, weight="bold"))
         conn_label.pack(pady=(10, 5))
+
+        conn_frame_2 = ctk.CTkFrame(conn_frame)
+        conn_frame_2.pack(fill="x")
         
         # COM port selection
-        com_frame = ctk.CTkFrame(conn_frame, fg_color="transparent")
+        com_frame = ctk.CTkFrame(conn_frame_2, fg_color="transparent")
         com_frame.pack(pady=5, padx=10, fill="x")
         
         self.com_label = ctk.CTkLabel(com_frame, text="Select COM Port:")
@@ -164,7 +168,7 @@ class PolarizationControllerGUI(ctk.CTk):
         self.refresh_button.pack(side="left", padx=5, expand=True, fill="x")
         
         # Connect button
-        conn_status_frame = ctk.CTkFrame(conn_frame, fg_color="transparent")
+        conn_status_frame = ctk.CTkFrame(conn_frame_2, fg_color="transparent")
         conn_status_frame.pack(pady=5, padx=10, fill="x")
 
         self.connect_button = ctk.CTkButton(conn_status_frame, text="Connect", command=self.toggle_connection_async)
@@ -177,6 +181,8 @@ class PolarizationControllerGUI(ctk.CTk):
         status_indicator = ctk.CTkLabel(conn_status_frame, text="Connection Status:", font=ctk.CTkFont(size=14, weight="bold"))
         status_indicator.pack(pady=(0, 0), side="right", expand=True)
 
+        #####################################################################################
+        
         # Polarization Control Frame
         control_frame = ctk.CTkFrame(self.left_frame)
         control_frame.pack(pady=(0,10), padx=10, fill="x")
@@ -187,11 +193,11 @@ class PolarizationControllerGUI(ctk.CTk):
         
         # Control frame 2 for a better layout
         control_frame_2 = ctk.CTkFrame(control_frame)
-        control_frame_2.pack(pady=5, padx=10, fill="x")
+        control_frame_2.pack(fill="x")
         
         # Quick preset buttons
         preset_frame = ctk.CTkFrame(control_frame_2, fg_color="transparent")
-        preset_frame.pack(pady=(0,5), fill="x", expand=True)
+        preset_frame.pack(pady=5, padx=10, fill="x", expand=True)
         
         ctk.CTkLabel(preset_frame, text="Presets:").pack(pady=5, padx=(0,5), side="left", expand=True)
         
@@ -241,7 +247,7 @@ class PolarizationControllerGUI(ctk.CTk):
 
         # Direct STM32 Control
         stm32_frame = ctk.CTkFrame(control_frame_2, fg_color="transparent")
-        stm32_frame.pack(pady=5, padx=10, fill="x")
+        stm32_frame.pack(pady=(0,5), padx=10, fill="x")
         
         stm32_label = ctk.CTkLabel(stm32_frame, text="Multiple Polarization numbers (0-3, comma separated):")
         stm32_label.pack(pady=(0, 0))
@@ -256,20 +262,20 @@ class PolarizationControllerGUI(ctk.CTk):
 
         #####################################################################################
 
-        # Advanced STM32 Controls Frame (inspired by main.py)
-        advanced_frame = ctk.CTkFrame(self.left_frame)
-        advanced_frame.pack(pady=(0,10), padx=10, fill="x")
+        # Other STM32 Controls Frame (inspired by main.py)
+        others_frame = ctk.CTkFrame(self.left_frame)
+        others_frame.pack(pady=(0,10), padx=10, fill="x")
         
-        advanced_label = ctk.CTkLabel(advanced_frame, text="Advanced STM32 Controls", 
+        others_label = ctk.CTkLabel(others_frame, text="Other STM32 Controls", 
                                     font=ctk.CTkFont(size=14, weight="bold"))
-        advanced_label.pack()
+        others_label.pack()
 
         # advance frame 2 for better layout
-        advanced_frame_2 = ctk.CTkFrame(advanced_frame)
-        advanced_frame_2.pack(pady=5, padx=10, fill="x")
+        others_frame_2 = ctk.CTkFrame(others_frame)
+        others_frame_2.pack(fill="x")
         
         # Device selection
-        device_frame = ctk.CTkFrame(advanced_frame_2, fg_color="transparent")
+        device_frame = ctk.CTkFrame(others_frame_2, fg_color="transparent")
         device_frame.pack(pady=5, padx=10, fill="x")
         
         device_label = ctk.CTkLabel(device_frame, text="Device:")
@@ -289,7 +295,7 @@ class PolarizationControllerGUI(ctk.CTk):
         self.set_device_button.pack(side="right", padx=10)
         
         # Angle control
-        angle_frame = ctk.CTkFrame(advanced_frame_2, fg_color="transparent")
+        angle_frame = ctk.CTkFrame(others_frame_2, fg_color="transparent")
         angle_frame.pack(pady=5, padx=10, fill="x")
         
         angle_label = ctk.CTkLabel(angle_frame, text="Angle (0-360°):")
@@ -307,7 +313,7 @@ class PolarizationControllerGUI(ctk.CTk):
         self.set_angle_button.pack(side="right", padx=10)
         
         # Frequency controls
-        freq_frame = ctk.CTkFrame(advanced_frame_2, fg_color="transparent")
+        freq_frame = ctk.CTkFrame(others_frame_2, fg_color="transparent")
         freq_frame.pack(pady=5, padx=10, fill="x")
         
         # Stepper frequency
@@ -353,8 +359,11 @@ class PolarizationControllerGUI(ctk.CTk):
                                    font=ctk.CTkFont(size=16, weight="bold"))
         laser_label.pack(pady=(10, 5))
 
+        laser_conn_status_frame = ctk.CTkFrame(laser_frame)
+        laser_conn_status_frame.pack(pady=5, padx=10, fill="x")
+
         # Laser device selection
-        laser_conn_frame = ctk.CTkFrame(laser_frame, fg_color="transparent")
+        laser_conn_frame = ctk.CTkFrame(laser_conn_status_frame, fg_color="transparent")
         laser_conn_frame.pack(pady=5, padx=10, fill="x")
 
         device_values = self.get_laser_device_labels()
@@ -381,7 +390,7 @@ class PolarizationControllerGUI(ctk.CTk):
         self.laser_refresh_button.pack(side="left", padx=5)
 
         # Laser connection status and controls
-        laser_status_frame = ctk.CTkFrame(laser_frame, fg_color="transparent")
+        laser_status_frame = ctk.CTkFrame(laser_conn_status_frame, fg_color="transparent")
         laser_status_frame.pack(pady=5, padx=10, fill="x")
 
         channel_label = ctk.CTkLabel(laser_status_frame, text="Channel:")
@@ -405,8 +414,17 @@ class PolarizationControllerGUI(ctk.CTk):
         )
         self.laser_status_label.pack(side="right", padx=(5, 0))
 
+        #####################################################################################
+
+        laser_label = ctk.CTkLabel(laser_frame, text="Pulse Control",
+                                   font=ctk.CTkFont(size=14, weight="bold"))
+        laser_label.pack()
+
+        laser_pulse_control_frame = ctk.CTkFrame(laser_frame)
+        laser_pulse_control_frame.pack(pady=(0,5), padx=10, fill="x")
+
         # Pulse parameter controls
-        laser_param_frame = ctk.CTkFrame(laser_frame, fg_color="transparent")
+        laser_param_frame = ctk.CTkFrame(laser_pulse_control_frame, fg_color="transparent")
         laser_param_frame.pack(pady=5, padx=10, fill="x")
 
         laser_param_frame.grid_columnconfigure(5, weight=1)
@@ -432,7 +450,7 @@ class PolarizationControllerGUI(ctk.CTk):
         self.laser_set_params_button.grid(row=0, column=5, padx=(10, 0), pady=2, sticky="ew")
 
         # Row 0: Pulse Train
-        sequences_frame = ctk.CTkFrame(laser_frame, fg_color="transparent")
+        sequences_frame = ctk.CTkFrame(laser_pulse_control_frame, fg_color="transparent")
         sequences_frame.pack(pady=5, padx=10, fill="x")
         sequences_frame.grid_columnconfigure(0, weight=0)
         sequences_frame.grid_columnconfigure(1, weight=0)
@@ -456,7 +474,7 @@ class PolarizationControllerGUI(ctk.CTk):
 
 
         # Row 1: Continuous
-        sequences_frame_2 = ctk.CTkFrame(laser_frame, fg_color="transparent")
+        sequences_frame_2 = ctk.CTkFrame(laser_pulse_control_frame, fg_color="transparent")
         sequences_frame_2.pack(pady=5, padx=10, fill="x")        
         sequences_frame_2.grid_columnconfigure(0, weight=0)
         sequences_frame_2.grid_columnconfigure(1, weight=0)
@@ -484,7 +502,7 @@ class PolarizationControllerGUI(ctk.CTk):
         self.laser_stop_cont_button.grid(row=0, column=3, padx=(5, 0), pady=2, sticky="ew")
 
         # Row 2: Single Pulse and Status
-        sequences_frame_3 = ctk.CTkFrame(laser_frame, fg_color="transparent")
+        sequences_frame_3 = ctk.CTkFrame(laser_pulse_control_frame, fg_color="transparent")
         sequences_frame_3.pack(pady=5, padx=10, fill="x")
         sequences_frame_3.grid_columnconfigure(0, weight=6)
         sequences_frame_3.grid_columnconfigure(1, weight=1)
@@ -508,6 +526,8 @@ class PolarizationControllerGUI(ctk.CTk):
         # Ensure initial laser controls reflect disconnected state
         self.enable_laser_controls(False)
         
+        #####################################################################################
+
         # Log Frame
         log_frame = ctk.CTkFrame(self.right_frame)
         log_frame.pack(pady=(0,10), padx=10, fill="both", expand=True)
@@ -521,10 +541,10 @@ class PolarizationControllerGUI(ctk.CTk):
         
         log_label = ctk.CTkLabel(log_frame, text="Activity Log", 
                                font=ctk.CTkFont(size=16, weight="bold"))
-        log_label.pack(pady=(10, 5))
+        log_label.pack()
         
         self.log_text = ctk.CTkTextbox(log_frame, height=150)
-        self.log_text.pack(pady=10, padx=10, fill="both", expand=True)
+        self.log_text.pack(pady=5, padx=5, fill="both", expand=True)
         
 
     def get_com_ports(self):
@@ -956,8 +976,8 @@ class PolarizationControllerGUI(ctk.CTk):
                 self.laser_status_label.configure(text="✗ Unable to resolve device", text_color="red")
                 self._laser_connecting = False
                 self.laser_connected = False
-                # return
-                # raise ValueError("Unable to resolve device selection. Refresh the device list.")
+                if not USE_SIMULATION:
+                    return
 
             channel_text = self.laser_channel_entry.get().strip()
             channel = int(channel_text) if channel_text else 8
@@ -973,10 +993,12 @@ class PolarizationControllerGUI(ctk.CTk):
             return
 
         try:
-            # controller = create_laser_controller_with_hardware(device_index=device_index, digital_channel=channel)
-            # controller simulation for testing without hardware
-            driver_simulation = SimulatedLaserDriver(pulses_queue=Queue(), laser_info=LaserInfo())
-            controller = LaserController(driver=driver_simulation)
+            if USE_SIMULATION:
+                driver_simulation = SimulatedLaserDriver(pulses_queue=Queue(), laser_info=LaserInfo())
+                controller = LaserController(driver=driver_simulation)
+            else:
+                controller = create_laser_controller_with_hardware(device_index=device_index, digital_channel=channel)
+
             if not controller.initialize():
                 self.log_message("Laser initialization failed.")
                 self.laser_connect_button.configure(text="Connect Laser", state="normal")
@@ -984,7 +1006,6 @@ class PolarizationControllerGUI(ctk.CTk):
                 self._laser_connecting = False
                 self.laser_connected = False
                 return
-                # raise RuntimeError("Laser initialization failed")
 
             self.laser_controller = controller
             self.laser_connected = True
@@ -1268,11 +1289,8 @@ class PolarizationControllerGUI(ctk.CTk):
                 interface_info = driver_info.get("interface_status", {})
                 
                 # Controller status
-                self.log_message("=" * 60)
                 self.log_message("📊 LASER STATUS REPORT")
-                self.log_message("=" * 60)
-                # Driver section
-                self.log_message("🔧 Driver:")
+                self.log_message("🔧 Laser Controller:")
                 self.log_message(f"   ├─ Type: {driver_info.get('hardware_type', 'unknown')}")
                 self.log_message(f"   ├─ Device Index: {driver_info.get('device_index', 'N/A')}")
                 self.log_message(f"   ├─ Channel: {driver_info.get('digital_channel', 'N/A')}")
