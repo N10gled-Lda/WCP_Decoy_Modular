@@ -200,10 +200,11 @@ class DigitalHardwareLaserDriver(BaseLaserDriver):
             if success:
                 self.trigger_count += n_triggers
                 self.last_trigger_time = time.time()
+                self.frequency = rep_rate_hz
                 
                 # Wait for completion
                 duration = n_triggers / rep_rate_hz
-                time.sleep(duration + 0.01)  # Small buffer
+                # time.sleep(duration + 0.01)  # Small buffer
                 
                 self.logger.info(f"Frame sent: {n_triggers} pulses at {rep_rate_hz} Hz")
             else:

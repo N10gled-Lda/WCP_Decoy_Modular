@@ -290,13 +290,18 @@ class PolarizationController:
             - stepper_freq: stepper motor frequency (if applicable) - must be integer between 1 and 500 Hz
         """
         # Set period of stepper motor
-        if hasattr(self.driver, 'set_operation_period') and period is not None:
-            self.driver.set_operation_period(period)
-        elif hasattr(self.driver, 'set_stepper_frequency') and stepper_freq is not None:
-            self.driver.set_stepper_frequency(stepper_freq)
-        else:
-            self.logger.warning("Driver doesn't support setting stepper frequency or period setter")
-            return False
+        if period is not None:
+            if hasattr(self.driver, 'set_operation_period'):
+                self.driver.set_operation_period(period)
+            else:
+                self.logger.warning("Driver doesn't support setting operation period")
+                return False
+        if stepper_freq is not None:
+            if hasattr(self.driver, 'set_stepper_frequency'):
+                self.driver.set_stepper_frequency(stepper_freq)
+            else:
+                self.logger.warning("Driver doesn't support setting stepper frequency")
+                return False
 
         if hasattr(self.driver, 'set_polarization_numbers'):
             if isinstance(states[0], PolarizationState):

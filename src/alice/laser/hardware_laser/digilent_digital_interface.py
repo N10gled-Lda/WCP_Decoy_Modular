@@ -594,17 +594,34 @@ def list_digital_devices() -> List[dict]:
                 "index": i,
                 "name": "Unknown",
                 "serial": "Unknown",
-                "digital_channels": 16  # Most Digilent devices have 16 digital I/O
+                "type": "Unknown",
+                "digital_channels": "Unknown"  # Most Digilent devices have 16 digital I/O
             }
             
             # Try to get device name
             try:
                 szDeviceName = create_string_buffer(64)
                 szSN = create_string_buffer(16)
+                szDeviceId = c_int()
+                szDeviceRevision = c_int()
+                sznum_channels = c_int()
+
                 if dwf.FDwfEnumDeviceName(c_int(i), szDeviceName) == 1:
                     device_info["name"] = szDeviceName.value.decode('ascii')
                 if dwf.FDwfEnumSN(c_int(i), szSN) == 1:
                     device_info["serial"] = szSN.value.decode('ascii')
+                if dwf.FDwfEnumDeviceType(c_int(i), byref(szDeviceId), byref(szDeviceRevision)) == 1:
+                    device_info["type"] = f"id: {szDeviceId.value} rev: {szDeviceRevision.value}"
+                if dwf.FDwfEnumConfigInfo(i, 5, byref(sznum_channels)) == 1:  # 5 = DECIDigitalOutChannelCount
+                    device_info["digital_channels"] = sznum_channels.value
+
+                # Other way to find the number of digital out channels
+                # num_channels_2 = c_int()
+                # hdwf = dwf.FDwfDeviceOpen(c_int(i), byref(c_int()))
+                # if dwf.FDwfDigitalOutCount(hdwf, byref(num_channels_2)) == 1:
+                #     device_info["digital_out_channels"] = num_channels_2.value
+                #     print(f"Device {i} has {num_channels_2.value} digital out channels")
+                # dwf.FDwfDeviceClose(hdwf)
             except:
                 pass
             

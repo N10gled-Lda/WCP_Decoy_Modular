@@ -9,7 +9,10 @@ from src.utils.data_structures import Pulse
 
 # Import specific driver classes for type hints
 from src.alice.laser.laser_simulator import SimulatedLaserDriver
-from src.alice.laser.laser_hardware_digital import DigitalHardwareLaserDriver
+from src.alice.laser.laser_hardware_digital import (
+    DigitalHardwareLaserDriver,
+    create_digital_laser_driver,
+)
 
 class LaserController:
     """
@@ -195,6 +198,40 @@ class LaserController:
             self.logger.error(f"Error triggering single pulse: {e}")
             raise
 
+    def set_pulse_parameters(self, duty_cycle: Optional[float] = None, frequency: Optional[float] = None, idle_state: Optional[bool] = None) -> bool:
+        """Configure the underlying driver's pulse-generation parameters.
+
+        Args:
+            duty_cycle: Optional desired duty cycle. Accepts 0.0-1.0; values outside the range are clamped by the driver.
+            frequency: Optional pulse repetition frequency in Hz. When omitted the driver's current frequency is preserved.
+            idle_state: Optional idle state (True for logic high) for hardware drivers that expose this attribute.
+
+        Returns:
+            True if the driver successfully applied the update, False otherwise.
+        """
+
+        self._ensure_initialized()
+
+        driver_setter = getattr(self._driver, "set_pulse_parameters", None)
+        if not callable(driver_setter):
+            raise NotImplementedError("The configured laser driver does not support pulse parameter updates.")
+
+        if idle_state is not None and hasattr(self._driver, "idle_state"):
+            try:
+                setattr(self._driver, "idle_state", bool(idle_state))
+            except Exception as exc:
+                self.logger.warning(f"Failed to update driver idle state: {exc}")
+
+        try:
+            driver_setter(duty_cycle, frequency)
+            self.logger.info(
+                "Laser pulse parameters updated via controller: duty_cycle=%s, frequency=%s", duty_cycle, frequency
+            )
+            return True
+        except Exception as exc:
+            self.logger.error(f"Error applying pulse parameters: {exc}")
+            return False
+        
     # ---- Status and monitoring -------------------------
     def get_status(self) -> dict:
         """
@@ -248,3 +285,12 @@ class LaserController:
             self.shutdown()
         except:
             pass  # Ignore errors during cleanup
+
+
+def create_laser_controller_with_hardware(
+    device_index: int = -1, digital_channel: int = 8
+) -> "LaserController":
+    """Convenience factory returning a hardware-backed laser controller."""
+
+    driver = create_digital_laser_driver(device_index=device_index, digital_channel=digital_channel)
+    return LaserController(driver)

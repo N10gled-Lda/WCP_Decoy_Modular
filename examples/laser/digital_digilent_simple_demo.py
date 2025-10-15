@@ -36,7 +36,7 @@ def test_trigger_modes():
     devices = list_digital_devices()
     print(f"📱 Available devices: {len(devices)}")
     for dev in devices:
-        print(f"  • {dev['index']}: {dev['name']} (SN: {dev['serial']})")
+        print(f"  • {dev['index']}: {dev['name']} ({dev['serial']}) - Type: {dev['type']} - Digital Channels: {dev['digital_channels']}")
     
     if not devices:
         print("❌ No Digilent devices found - running simulation mode")
@@ -120,6 +120,7 @@ def test_invalid_mode():
     
     try:
         interface = DigilentDigitalInterface(device_index=-1, digital_channel=8)
+        interface.connect()
         if interface.connected:
             # Try to use the old BURST mode (should fail)
             success = interface.trigger_laser(mode="burst", count=5)
