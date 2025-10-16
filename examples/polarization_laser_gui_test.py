@@ -13,7 +13,7 @@ import customtkinter as ctk
 import threading
 import time
 from queue import Queue, Empty
-from typing import Optional
+from typing import Optional, Tuple
 import logging
 from concurrent.futures import ThreadPoolExecutor
 import functools
@@ -137,7 +137,7 @@ class PolarizationControllerGUI(ctk.CTk):
         self.laser_duty_entry.insert(0, "10")
         self.laser_freq_entry.insert(0, "1000")
         self.laser_frame_count_entry.insert(0, "10")
-        self.laser_frame_freq_entry.insert(0, "1000")
+        self.laser_frame_time_entry.insert(0, "1000")
         self.laser_cont_freq_entry.insert(0, "1000")
 
     def setup_gui_leftside(self):
@@ -323,7 +323,7 @@ class PolarizationControllerGUI(ctk.CTk):
         stepper_label = ctk.CTkLabel(stepper_frame, text="Stepper Frequency (1-1000 Hz):")
         stepper_label.pack(side="left", padx=(10, 5))
         
-        self.stepper_entry = ctk.CTkEntry(stepper_frame, width=80, placeholder_text="100")
+        self.stepper_entry = ctk.CTkEntry(stepper_frame, width=80, placeholder_text="500")
         self.stepper_entry.pack(side="left", padx=5)
         
         self.set_stepper_button = ctk.CTkButton(stepper_frame, text="Set Stepper Freq", 
@@ -455,22 +455,35 @@ class PolarizationControllerGUI(ctk.CTk):
         sequences_frame.grid_columnconfigure(0, weight=0)
         sequences_frame.grid_columnconfigure(1, weight=0)
         sequences_frame.grid_columnconfigure(2, weight=0)
-        sequences_frame.grid_columnconfigure(3, weight=1)
+        sequences_frame.grid_columnconfigure(3, weight=0)
+        sequences_frame.grid_columnconfigure(4, weight=1)
 
-        ctk.CTkLabel(sequences_frame, text="Pulse Train (Nb / Freq):").grid(
+        ctk.CTkLabel(sequences_frame, text="Pulse Train -> Nb:").grid(
             row=0, column=0, padx=(0, 5), pady=2, sticky="e"
         )
         self.laser_frame_count_entry = ctk.CTkEntry(sequences_frame, width=70, placeholder_text="5")
         self.laser_frame_count_entry.grid(row=0, column=1, padx=5, pady=2, sticky="w")
-        self.laser_frame_freq_entry = ctk.CTkEntry(sequences_frame, width=90, placeholder_text="1000")
-        self.laser_frame_freq_entry.grid(row=0, column=2, padx=5, pady=2, sticky="w")
+
+        ctk.CTkLabel(sequences_frame, text="Time(s):").grid(row=0, column=2, padx=0, pady=2, sticky="w")
+        self.laser_frame_time_entry = ctk.CTkEntry(sequences_frame, width=90, placeholder_text="1000")
+        self.laser_frame_time_entry.grid(row=0, column=3, padx=5, pady=2, sticky="w")
+
+        self.laser_frame_repeat_switch = ctk.CTkSwitch(sequences_frame, text="Repeat? Nb:", command=self.on_repeat_switch_toggle)
+        self.laser_frame_repeat_switch.grid(row=1, column=0, padx=(0, 5), pady=2, sticky="e")
+        self.laser_frame_repeat_nb_entry = ctk.CTkEntry(sequences_frame, width=70, placeholder_text="10")
+        self.laser_frame_repeat_nb_entry.grid(row=1, column=1, padx=5, pady=2, sticky="w")
+
+        ctk.CTkLabel(sequences_frame, text="Interval(s):").grid(row=1, column=2, padx=0, pady=2, sticky="w")
+        self.laser_frame_repeat_interval_entry = ctk.CTkEntry(sequences_frame, width=90, placeholder_text="1000")
+        self.laser_frame_repeat_interval_entry.grid(row=1, column=3, padx=5, pady=2, sticky="w")
+
         self.laser_send_frame_button = ctk.CTkButton(
             sequences_frame,
             text="Send Pulse Train",
             command=self.send_laser_frame_async,
             state="disabled"
         )
-        self.laser_send_frame_button.grid(row=0, column=3, padx=5, pady=2, sticky="ew")
+        self.laser_send_frame_button.grid(row=0, rowspan=2, column=4, padx=5, pady=2, sticky="ewns")
 
 
         # Row 1: Continuous
@@ -725,8 +738,6 @@ class PolarizationControllerGUI(ctk.CTk):
                 # Update the last state display
                 self.last_state_var.set(f"Last State: {self.current_basis.name} / {self.current_bit.value} ({output.angle_degrees}°)")
 
-                self.log_message(f"✓ QRNG set: {output.basis.name} basis, bit {output.bit.value} → "
-                               f"{output.polarization_state.name} ({output.angle_degrees}°)")
                 self.log_message(f"✓ QRNG set: {output.basis.name} basis, bit {output.bit.value} → "
                                f"{output.polarization_state.name} ({output.angle_degrees}°)")
             
@@ -1085,8 +1096,11 @@ class PolarizationControllerGUI(ctk.CTk):
 
         # Pulse train/continuous parameter entries
         self.laser_frame_count_entry.configure(state=entry_state)
-        self.laser_frame_freq_entry.configure(state=entry_state)
+        self.laser_frame_time_entry.configure(state=entry_state)
         self.laser_cont_freq_entry.configure(state=entry_state)
+        self.laser_frame_repeat_switch.configure(state=entry_state)
+        self.laser_frame_repeat_nb_entry.configure(state=entry_state if self.laser_frame_repeat_switch.get() else "disabled")
+        self.laser_frame_repeat_interval_entry.configure(state=entry_state if self.laser_frame_repeat_switch.get() else "disabled")
 
         # Action buttons
         self.laser_set_params_button.configure(state=state)
@@ -1180,7 +1194,7 @@ class PolarizationControllerGUI(ctk.CTk):
 
         try:
             count_text = self.laser_frame_count_entry.get().strip()
-            freq_text = self.laser_frame_freq_entry.get().strip()
+            freq_text = self.laser_frame_time_entry.get().strip()
 
             if not count_text:
                 self.schedule_gui_update(lambda: self.log_message("✗ Enter number of pulses"))
@@ -1203,6 +1217,21 @@ class PolarizationControllerGUI(ctk.CTk):
                 self.schedule_gui_update(lambda: self.log_message("✗ Repetition rate must be positive"))
                 return
 
+            repeat_params = self.get_repeat_parameters()
+            if repeat_params:
+                nb_repeats, interval = repeat_params
+                self.log_message(f"⟳ Repeating pulse train {nb_repeats} times every {interval:.1f} seconds")
+                for i in range(nb_repeats):
+                    if i > 0:
+                        time.sleep(interval)
+                    self.log_message(f"→ Sending pulse train {i+1}/{nb_repeats}...")
+                    success = self.laser_controller.send_frame(count, frequency)
+                    if not success:
+                        self.schedule_gui_update(lambda: self.log_message("✗ Failed to send pulse train during repeat"))
+                        return
+                self.schedule_gui_update(lambda: self.log_message(f"✓ Completed {nb_repeats} pulse train repeats"))
+                return
+            
             success = self.laser_controller.send_frame(count, frequency)
 
             def update_gui():
@@ -1215,6 +1244,45 @@ class PolarizationControllerGUI(ctk.CTk):
 
         except Exception as e:
             self.schedule_gui_update(lambda: self.log_message(f"✗ Pulse train error: {e}"))
+
+    def on_repeat_switch_toggle(self):
+        """Enable or disable repeat parameters based on switch state."""
+        if self.laser_frame_repeat_switch.get():
+            self.laser_frame_repeat_nb_entry.configure(state="normal")
+            self.laser_frame_repeat_interval_entry.configure(state="normal")
+        else:
+            self.laser_frame_repeat_nb_entry.configure(state="disabled")
+            self.laser_frame_repeat_interval_entry.configure(state="disabled")
+            
+    
+    def get_repeat_parameters(self) -> Optional[Tuple[int, float]]:
+        """Retrieve repeat parameters if enabled."""
+        if not self.laser_frame_repeat_switch.get():
+            return None
+
+        try:
+            nb_text = self.laser_frame_repeat_nb_entry.get().strip()
+            interval_text = self.laser_frame_repeat_interval_entry.get().strip()
+
+            if not nb_text or not interval_text:
+                self.schedule_gui_update(lambda: self.log_message("✗ Enter repeat count and interval"))
+                return None
+
+            nb = int(nb_text)
+            interval = float(interval_text)
+
+            if nb <= 0:
+                self.schedule_gui_update(lambda: self.log_message("✗ Repeat count must be positive"))
+                return None
+            if interval <= 0:
+                self.schedule_gui_update(lambda: self.log_message("✗ Repeat interval must be positive"))
+                return None
+
+            return (nb, interval)
+
+        except Exception as e:
+            self.schedule_gui_update(lambda: self.log_message(f"✗ Invalid repeat parameters: {e}"))
+            return None
 
     @run_in_background
     def start_laser_continuous_async(self):
