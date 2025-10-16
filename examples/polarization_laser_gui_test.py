@@ -14,6 +14,7 @@ import threading
 import time
 from queue import Queue, Empty
 from typing import Optional, Tuple
+from decimal import Decimal, localcontext, InvalidOperation
 import logging
 from concurrent.futures import ThreadPoolExecutor
 import functools
@@ -52,7 +53,7 @@ def run_in_background(func):
     return wrapper
 
 
-class PolarizationControllerGUI(ctk.CTk):
+class PolarizationLaserControllerGUI(ctk.CTk):
     def __init__(self):
         super().__init__()
         
@@ -63,11 +64,11 @@ class PolarizationControllerGUI(ctk.CTk):
         self.gui_update_queue = Queue()
         
         # Scrollable window
-        self.scrollable_frame = ctk.CTkScrollableFrame(self, width=1050, height=600)
+        self.scrollable_frame = ctk.CTkScrollableFrame(self, width=1100, height=600)
         self.scrollable_frame.pack(fill="both", expand=True)
         
-        self.title("Polarization Controller Hardware Interface (Improved)")
-        self.geometry("1050x600")
+        self.title("Polarization Laser Controller Hardware Interface for Testing Alice")
+        self.geometry("1100x600")
 
         # Controller
         self.pol_controller: Optional[PolarizationController] = None
@@ -137,8 +138,19 @@ class PolarizationControllerGUI(ctk.CTk):
         self.laser_duty_entry.insert(0, "10")
         self.laser_freq_entry.insert(0, "1000")
         self.laser_frame_count_entry.insert(0, "10")
-        self.laser_frame_time_entry.insert(0, "1000")
+        self.laser_frame_time_entry.insert(0, "1")  # Time in milliseconds (1000 Hz = 1 ms period)
         self.laser_cont_freq_entry.insert(0, "1000")
+        self.laser_frame_repeat_nb_entry.insert(0, "10")
+        self.laser_frame_repeat_interval_entry.insert(0, "1")
+
+
+        # Bind entry callbacks for frequency/time synchronization
+        self.laser_freq_entry.bind('<FocusOut>', self._on_freq_changed)
+        self.laser_freq_entry.bind('<Return>', self._on_freq_changed)
+        self.laser_frame_time_entry.bind('<FocusOut>', self._on_time_changed)
+        self.laser_frame_time_entry.bind('<Return>', self._on_time_changed)
+        self.laser_cont_freq_entry.bind('<FocusOut>', self._on_cont_freq_changed)
+        self.laser_cont_freq_entry.bind('<Return>', self._on_cont_freq_changed)
 
     def setup_gui_leftside(self):
         """Setup the left side of the GUI"""
@@ -171,14 +183,14 @@ class PolarizationControllerGUI(ctk.CTk):
         conn_status_frame = ctk.CTkFrame(conn_frame_2, fg_color="transparent")
         conn_status_frame.pack(pady=5, padx=10, fill="x")
 
-        self.connect_button = ctk.CTkButton(conn_status_frame, text="Connect", command=self.toggle_connection_async)
+        self.connect_button = ctk.CTkButton(conn_status_frame, text="Connect STM", command=self.toggle_connection_async)
         self.connect_button.pack(pady=0, side="left", expand=True, fill="x")
         
         # Connection status
         self.status_label = ctk.CTkLabel(conn_status_frame, text="● Disconnected", 
                                            text_color="red", font=ctk.CTkFont(size=14, weight="bold"))
         self.status_label.pack(pady=(0, 0), side="right", expand=True, fill="x")
-        status_indicator = ctk.CTkLabel(conn_status_frame, text="Connection Status:", font=ctk.CTkFont(size=14, weight="bold"))
+        status_indicator = ctk.CTkLabel(conn_status_frame, text="Status:", font=ctk.CTkFont(size=14, weight="bold"))
         status_indicator.pack(pady=(0, 0), side="right", expand=True)
 
         #####################################################################################
@@ -282,12 +294,12 @@ class PolarizationControllerGUI(ctk.CTk):
         device_label.pack(side="left", padx=(10, 5))
         
         self.device_var = ctk.StringVar(value="1")
-        device_radio1 = ctk.CTkRadioButton(device_frame, text="Linear (1)", 
-                                         variable=self.device_var, value="1")
-        device_radio1.pack(side="left", padx=5)
-        device_radio2 = ctk.CTkRadioButton(device_frame, text="HWP (2)", 
-                                         variable=self.device_var, value="2")
-        device_radio2.pack(side="left", padx=5)
+        self.device_radio1 = ctk.CTkRadioButton(device_frame, text="Linear (1)", 
+                                         variable=self.device_var, value="1", state="disable")
+        self.device_radio1.pack(side="left", padx=5)
+        self.device_radio2 = ctk.CTkRadioButton(device_frame, text="HWP (2)", 
+                                         variable=self.device_var, value="2", state="disable")
+        self.device_radio2.pack(side="left", padx=5)
         
         self.set_device_button = ctk.CTkButton(device_frame, text="Set Device", 
                                              command=self.set_polarization_device_async, 
@@ -304,7 +316,7 @@ class PolarizationControllerGUI(ctk.CTk):
         self.angle_entry = ctk.CTkEntry(angle_frame, width=80, placeholder_text="45")
         self.angle_entry.pack(side="left", padx=5)
         
-        self.offset_switch = ctk.CTkSwitch(angle_frame, text="Set as Offset")
+        self.offset_switch = ctk.CTkSwitch(angle_frame, text="Set as Offset", state="disable")
         self.offset_switch.pack(side="left", padx=10)
         
         self.set_angle_button = ctk.CTkButton(angle_frame, text="Set Angle", 
@@ -345,6 +357,8 @@ class PolarizationControllerGUI(ctk.CTk):
                                              command=self.set_operation_period_async, 
                                              state="disabled", width=120)
         self.set_period_button.pack(side="right", padx=10)
+
+        self.enable_controls(False)
 
         #####################################################################################
 
@@ -464,8 +478,8 @@ class PolarizationControllerGUI(ctk.CTk):
         self.laser_frame_count_entry = ctk.CTkEntry(sequences_frame, width=70, placeholder_text="5")
         self.laser_frame_count_entry.grid(row=0, column=1, padx=5, pady=2, sticky="w")
 
-        ctk.CTkLabel(sequences_frame, text="Time(s):").grid(row=0, column=2, padx=0, pady=2, sticky="w")
-        self.laser_frame_time_entry = ctk.CTkEntry(sequences_frame, width=90, placeholder_text="1000")
+        ctk.CTkLabel(sequences_frame, text="Time(ms):").grid(row=0, column=2, padx=0, pady=2, sticky="w")
+        self.laser_frame_time_entry = ctk.CTkEntry(sequences_frame, width=90, placeholder_text="1")
         self.laser_frame_time_entry.grid(row=0, column=3, padx=5, pady=2, sticky="w")
 
         self.laser_frame_repeat_switch = ctk.CTkSwitch(sequences_frame, text="Repeat? Nb:", command=self.on_repeat_switch_toggle)
@@ -474,7 +488,7 @@ class PolarizationControllerGUI(ctk.CTk):
         self.laser_frame_repeat_nb_entry.grid(row=1, column=1, padx=5, pady=2, sticky="w")
 
         ctk.CTkLabel(sequences_frame, text="Interval(s):").grid(row=1, column=2, padx=0, pady=2, sticky="w")
-        self.laser_frame_repeat_interval_entry = ctk.CTkEntry(sequences_frame, width=90, placeholder_text="1000")
+        self.laser_frame_repeat_interval_entry = ctk.CTkEntry(sequences_frame, width=90, placeholder_text="1")
         self.laser_frame_repeat_interval_entry.grid(row=1, column=3, padx=5, pady=2, sticky="w")
 
         self.laser_send_frame_button = ctk.CTkButton(
@@ -689,6 +703,13 @@ class PolarizationControllerGUI(ctk.CTk):
         self.set_period_button.configure(state=state)
         self.refresh_button.configure(state=state)
         self.combobox.configure(state=state)
+        self.device_radio1.configure(state=state)
+        self.device_radio2.configure(state=state)
+        self.angle_entry.configure(state=state)
+        self.offset_switch.configure(state=state)
+        self.polarization_entry.configure(state=state)
+        self.stepper_entry.configure(state=state)
+        self.period_entry.configure(state=state)
 
     @run_in_background
     def set_preset_async(self, basis: Basis, bit: Bit):
@@ -908,6 +929,163 @@ class PolarizationControllerGUI(ctk.CTk):
             return "H" if bit == Bit.ZERO else "V"
         else:  # Basis.X
             return "D" if bit == Bit.ZERO else "A"
+
+    #####################################################################################
+    # Frequency/Time Synchronization Methods
+    #####################################################################################
+
+    def _format_decimal(self, d: Decimal, sci_low: Decimal = Decimal('1e-3'), sci_high: Decimal = Decimal('1e6')) -> str:
+        """Format Decimal d using plain string with trimmed zeros, or scientific notation
+        when |d| >= sci_high or (0 < |d| < sci_low). Avoid scientific notation otherwise.
+        """
+        if d.is_nan():
+            return ""
+        if d.is_zero():
+            return "0"
+        ad = abs(d)
+        # Choose format
+        if ad >= sci_high or ad < sci_low:
+            # Scientific notation with trimmed mantissa zeros and compact exponent
+            s = f"{d:.12e}"
+            mantissa, exp = s.split('e')
+            mantissa = mantissa.rstrip('0').rstrip('.')
+            exp_sign = '-' if exp.startswith('-') else ''
+            exp_digits = exp.lstrip('+-').lstrip('0') or '0'
+            return f"{mantissa}e{exp_sign}{exp_digits}"
+        else:
+            # Plain decimal: trim trailing zeros only if there is a fractional part
+            s = format(d, 'f')
+            if '.' in s:
+                s = s.rstrip('0').rstrip('.')
+            # # Remove the left 0's before the first non-zero digit
+            # s = s.lstrip('0')
+            return s or '0'
+        
+    def _on_freq_changed(self, event=None):
+        """Update time entry when frequency changes (freq in Hz -> time in ms)"""
+        try:
+            freq_text = self.laser_freq_entry.get().strip()
+            if not freq_text:
+                return
+            
+            # Use Decimal to parse and compute
+            frequency_dec = Decimal(freq_text)
+            if frequency_dec <= 0:
+                return
+            freq_text = self._format_decimal(frequency_dec)  # Normalize input
+            
+            # Calculate period in milliseconds: T = 1000 / f (use Decimal for precision)
+            with localcontext() as ctx:
+                ctx.prec = 50  # high precision to avoid rounding artifacts
+                time_ms_dec = (Decimal(1000) / frequency_dec)
+                time_ms_str = self._format_decimal(time_ms_dec)
+            
+            self.laser_freq_entry.delete(0, 'end')
+            self.laser_freq_entry.insert(0, freq_text)  # Update to normalized input
+
+            # Update time entry (avoid triggering callback)
+            self.laser_frame_time_entry.unbind('<FocusOut>')
+            self.laser_frame_time_entry.unbind('<Return>')
+            self.laser_frame_time_entry.delete(0, 'end')
+            self.laser_frame_time_entry.insert(0, time_ms_str)
+            self.laser_frame_time_entry.bind('<FocusOut>', self._on_time_changed)
+            self.laser_frame_time_entry.bind('<Return>', self._on_time_changed)
+            
+            # Also update continuous frequency entry
+            self.laser_cont_freq_entry.unbind('<FocusOut>')
+            self.laser_cont_freq_entry.unbind('<Return>')
+            self.laser_cont_freq_entry.delete(0, 'end')
+            self.laser_cont_freq_entry.insert(0, freq_text)
+            self.laser_cont_freq_entry.bind('<FocusOut>', self._on_cont_freq_changed)
+            self.laser_cont_freq_entry.bind('<Return>', self._on_cont_freq_changed)
+            
+        except (ValueError, InvalidOperation):
+            pass  # Invalid input, ignore
+    
+    def _on_time_changed(self, event=None):
+        """Update frequency entry when time changes (time in ms -> freq in Hz)"""
+        try:
+            time_text = self.laser_frame_time_entry.get().strip()
+            if not time_text:
+                return
+            
+            # Parse as Decimal to keep full precision of user input
+            time_ms_dec = Decimal(time_text)
+            if time_ms_dec <= 0:
+                return
+            
+            time_text = self._format_decimal(time_ms_dec)  # Normalize input
+
+            # Calculate frequency in Hz: f = 1000 / T (use Decimal for precision)
+            with localcontext() as ctx:
+                ctx.prec = 50
+                freq_dec = (Decimal(1000) / time_ms_dec)
+                freq_str = self._format_decimal(freq_dec)
+            
+            # Round freq to the nearest integer, and adapt the time accordingly
+            freq_str = str(int(freq_dec.to_integral_value()))
+            time_ms_str = self._format_decimal(Decimal(1000) / Decimal(freq_str))
+            self.laser_frame_time_entry.delete(0, 'end')
+            self.laser_frame_time_entry.insert(0, time_ms_str)
+
+            # Update frequency entry (avoid triggering callback)
+            self.laser_freq_entry.unbind('<FocusOut>')
+            self.laser_freq_entry.unbind('<Return>')
+            self.laser_freq_entry.delete(0, 'end')
+            self.laser_freq_entry.insert(0, freq_str)
+            self.laser_freq_entry.bind('<FocusOut>', self._on_freq_changed)
+            self.laser_freq_entry.bind('<Return>', self._on_freq_changed)
+            
+            # Also update continuous frequency entry
+            self.laser_cont_freq_entry.unbind('<FocusOut>')
+            self.laser_cont_freq_entry.unbind('<Return>')
+            self.laser_cont_freq_entry.delete(0, 'end')
+            self.laser_cont_freq_entry.insert(0, freq_str)
+            self.laser_cont_freq_entry.bind('<FocusOut>', self._on_cont_freq_changed)
+            self.laser_cont_freq_entry.bind('<Return>', self._on_cont_freq_changed)
+            
+        except (ValueError, InvalidOperation):
+            pass  # Invalid input, ignore
+    
+    def _on_cont_freq_changed(self, event=None):
+        """Update main frequency when continuous frequency changes"""
+        try:
+            cont_freq_text = self.laser_cont_freq_entry.get().strip()
+            if not cont_freq_text:
+                return
+            
+            # Use Decimal to parse and compute
+            frequency_dec = Decimal(cont_freq_text)
+            if frequency_dec <= 0:
+                return
+            cont_freq_text = self._format_decimal(frequency_dec)  # Normalize input
+
+            self.laser_cont_freq_entry.delete(0, 'end')
+            self.laser_cont_freq_entry.insert(0, cont_freq_text)  # Update to normalized input
+            
+            # Update main frequency entry (avoid triggering callback)
+            self.laser_freq_entry.unbind('<FocusOut>')
+            self.laser_freq_entry.unbind('<Return>')
+            self.laser_freq_entry.delete(0, 'end')
+            self.laser_freq_entry.insert(0, cont_freq_text)
+            self.laser_freq_entry.bind('<FocusOut>', self._on_freq_changed)
+            self.laser_freq_entry.bind('<Return>', self._on_freq_changed)
+            
+            # Calculate and update time with high precision
+            with localcontext() as ctx:
+                ctx.prec = 50
+                time_ms_dec = (Decimal(1000) / frequency_dec)
+                time_ms_str = self._format_decimal(time_ms_dec)
+
+            self.laser_frame_time_entry.unbind('<FocusOut>')
+            self.laser_frame_time_entry.unbind('<Return>')
+            self.laser_frame_time_entry.delete(0, 'end')
+            self.laser_frame_time_entry.insert(0, time_ms_str)
+            self.laser_frame_time_entry.bind('<FocusOut>', self._on_time_changed)
+            self.laser_frame_time_entry.bind('<Return>', self._on_time_changed)
+            
+        except (ValueError, InvalidOperation):
+            pass  # Invalid input, ignore
 
     #####################################################################################
     #####################################################################################
@@ -1194,7 +1372,7 @@ class PolarizationControllerGUI(ctk.CTk):
 
         try:
             count_text = self.laser_frame_count_entry.get().strip()
-            freq_text = self.laser_frame_time_entry.get().strip()
+            time_text = self.laser_frame_time_entry.get().strip()
 
             if not count_text:
                 self.schedule_gui_update(lambda: self.log_message("✗ Enter number of pulses"))
@@ -1205,16 +1383,35 @@ class PolarizationControllerGUI(ctk.CTk):
                 self.schedule_gui_update(lambda: self.log_message("✗ Pulse count must be positive"))
                 return
 
-            if not freq_text:
+            # Get time in milliseconds, if empty use frequency entry
+            if not time_text:
                 freq_text = self.laser_freq_entry.get().strip()
+                if not freq_text:
+                    self.schedule_gui_update(lambda: self.log_message("✗ Enter a time period (ms) or frequency (Hz)"))
+                    return
+                try:
+                    frequency_dec = Decimal(freq_text)
+                except InvalidOperation:
+                    self.schedule_gui_update(lambda: self.log_message("✗ Invalid frequency value"))
+                    return
+                frequency = float(frequency_dec)
+            else:
+                # Convert time (ms) to frequency (Hz): f = 1000 / T
+                try:
+                    time_ms_dec = Decimal(time_text)
+                except InvalidOperation:
+                    self.schedule_gui_update(lambda: self.log_message("✗ Invalid time value"))
+                    return
+                if time_ms_dec <= 0:
+                    self.schedule_gui_update(lambda: self.log_message("✗ Time period must be positive"))
+                    return
+                with localcontext() as ctx:
+                    ctx.prec = 50
+                    frequency_dec = (Decimal(1000) / time_ms_dec)
+                    frequency = float(frequency_dec)
 
-            if not freq_text:
-                self.schedule_gui_update(lambda: self.log_message("✗ Enter a repetition rate (Hz)"))
-                return
-
-            frequency = float(freq_text)
             if frequency <= 0:
-                self.schedule_gui_update(lambda: self.log_message("✗ Repetition rate must be positive"))
+                self.schedule_gui_update(lambda: self.log_message("✗ Frequency must be positive"))
                 return
 
             repeat_params = self.get_repeat_parameters()
@@ -1423,9 +1620,28 @@ class PolarizationControllerGUI(ctk.CTk):
 if __name__ == "__main__":
     # Set CustomTkinter appearance
     ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
-    ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
+    # Load custom theme with primary orange #fe9409
+    THEME = "entangled_orange"
+    THEME = "green"
+    THEME = "dark_blue"
+    THEME = "orange"
+    try:
+        theme_path = os.path.join(os.path.dirname(__file__), 'themes', THEME + '.json')
+        if os.path.exists(theme_path):
+            ctk.set_default_color_theme(theme_path)
+        else:
+            ctk.set_default_color_theme("blue")
+    except Exception:
+        ctk.set_default_color_theme("blue")
+
+    # Optional: slightly increase widget scaling for comfort
+    try:
+        ctk.set_widget_scaling(1.05)
+        ctk.set_window_scaling(1.0)
+    except Exception:
+        pass
     
     # Create and run the application
-    app = PolarizationControllerGUI()
+    app = PolarizationLaserControllerGUI()
     app.protocol("WM_DELETE_WINDOW", app.on_closing)
     app.mainloop()
