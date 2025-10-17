@@ -690,7 +690,11 @@ class PolarizationLaserControllerGUI(ctk.CTk):
     def enable_controls(self, enabled: bool):
         """Enable or disable control buttons (runs on main thread)"""
         state = "normal" if enabled else "disabled"
+        device_state = "normal" if not enabled else "disabled"
         
+        self.refresh_button.configure(state=device_state)
+        self.combobox.configure(state=device_state)
+
         self.qrng_button.configure(state=state)
         self.h_button.configure(state=state)
         self.v_button.configure(state=state)
@@ -701,8 +705,6 @@ class PolarizationLaserControllerGUI(ctk.CTk):
         self.set_angle_button.configure(state=state)
         self.set_stepper_button.configure(state=state)
         self.set_period_button.configure(state=state)
-        self.refresh_button.configure(state=state)
-        self.combobox.configure(state=state)
         self.device_radio1.configure(state=state)
         self.device_radio2.configure(state=state)
         self.angle_entry.configure(state=state)
@@ -1265,7 +1267,7 @@ class PolarizationLaserControllerGUI(ctk.CTk):
 
         # Device selection widgets
         self.laser_device_combobox.configure(state=device_state)
-        self.laser_refresh_button.configure(state=device_state if enabled else "normal")
+        self.laser_refresh_button.configure(state=device_state)
         self.laser_channel_entry.configure(state=device_state)
 
         # Parameter entries and switches
