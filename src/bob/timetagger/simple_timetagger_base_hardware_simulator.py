@@ -101,7 +101,7 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
                     break
             if not available_taggers:
                 print("There are no Time Taggers available. Connect one and retry.")
-                exit()
+                return False
 
             self.tagger = self.TimeTagger.createTimeTagger()
             if self.tagger is None:
@@ -404,6 +404,7 @@ class SimpleTimeTaggerSimulator(SimpleTimeTagger):
             
             # Simulate realistic measurement time
             measurement_time = min(self._measurement_duration * 0.1, 0.2)  # Much faster for simulation
+            measurement_time = self._measurement_duration
             time.sleep(measurement_time)
             
             return counts
@@ -441,6 +442,7 @@ class SimpleTimeTaggerSimulator(SimpleTimeTagger):
             
             # Simulate measurement time
             measurement_time = min(duration_seconds * 0.1, 0.2)  # Much faster for simulation
+            measurement_time = duration_seconds
             time.sleep(measurement_time)
             print(" DEBUG: Measurement finished.")
             
