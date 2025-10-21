@@ -64,8 +64,10 @@ class PolarizationLaserControllerGUI(ctk.CTk):
         self.gui_update_queue = Queue()
         
         # Scrollable window
-        self.scrollable_frame = ctk.CTkScrollableFrame(self, width=1100, height=600)
-        self.scrollable_frame.pack(fill="both", expand=True)
+        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_frame.pack(fill="both", expand=True)
+        self.scrollable_frame = ctk.CTkScrollableFrame(self.main_frame, width=1100, height=600)
+        # self.scrollable_frame.pack(fill="both", expand=True)
         
         self.title("Polarization Laser Controller Hardware Interface for Testing Alice")
         self.geometry("1100x600")
@@ -118,13 +120,16 @@ class PolarizationLaserControllerGUI(ctk.CTk):
         # Configure the scrollable frame to use grid layout for two columns
         self.scrollable_frame.grid_columnconfigure(0, weight=1)
         self.scrollable_frame.grid_columnconfigure(1, weight=1)
+        self.scrollable_frame.grid_rowconfigure(0, weight=1)
         
         # Create left and right container frames
-        self.left_frame = ctk.CTkFrame(self.scrollable_frame, fg_color="transparent")
-        self.left_frame.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
+        self.left_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        # self.left_frame.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
+        self.left_frame.pack(side="left", fill="both", expand=True, padx=(10, 5), pady=10)
         
-        self.right_frame = ctk.CTkFrame(self.scrollable_frame, fg_color="transparent")
-        self.right_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
+        self.right_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        # self.right_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
+        self.right_frame.pack(side="right", fill="both", expand=True, padx=(5, 10), pady=10)
         
         # Build the UI sections
         self.setup_gui_leftside()
@@ -422,7 +427,7 @@ class PolarizationLaserControllerGUI(ctk.CTk):
 
         self.laser_status_label = ctk.CTkLabel(
             laser_status_frame,
-            text="● Laser Disconnected",
+            text="● Disconnected",
             text_color="red",
             font=ctk.CTkFont(size=14, weight="bold")
         )
@@ -1252,7 +1257,7 @@ class PolarizationLaserControllerGUI(ctk.CTk):
                 self._laser_connecting = False
                 self.laser_in_continuous = False
                 self.laser_controller = None
-                self.laser_status_label.configure(text="● Laser Disconnected", text_color="red")
+                self.laser_status_label.configure(text="● Disconnected", text_color="red")
                 self.laser_connect_button.configure(text="Connect Laser", state="normal")
                 self.enable_laser_controls(False)
                 self.log_message("Laser hardware disconnected")

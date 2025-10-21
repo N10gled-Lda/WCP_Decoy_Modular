@@ -114,7 +114,29 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
         except Exception as e:
             self.logger.error(f"Failed to initialize hardware: {e}")
             return False
-    
+
+    def scan_for_devices(self, timeout: float = 10.0) -> list:
+        """Scan for connected TimeTagger devices."""
+        if not self.hardware_available:
+            self.logger.warning("Hardware not available")
+            return []
+
+        try:
+            start_time = time.time()
+            self.logger.info(f"Scanning for TimeTagger devices for {timeout}s...")
+            while time.time() < start_time + timeout:
+                available_taggers = self.TimeTagger.scanTimeTagger()
+                if available_taggers:
+                    self.logger.info("Time Taggers available via TimeTagger.scanTimeTagger():")
+                    self.logger.info(available_taggers)
+                    return available_taggers
+            self.logger.warning("No Time Taggers found.")
+            return []
+
+        except Exception as e:
+            self.logger.error(f"Failed to scan for devices: {e}")
+            return []
+        
     def set_measurement_duration(self, duration_seconds: float) -> bool:
         """Set measurement duration and create appropriate counter with fine time resolution."""
         if not self.tagger:
@@ -179,12 +201,13 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
             counts = {}
             
             # Process the 2D array: data[channel_index][time_bin_index]
-            print(f" DEBUG: Length of data {len(data)}")
             for i, channel in enumerate(self.detector_channels):
-                print(f" DEBUG: Processing channel {channel}")
+                print(f" DEBUG: Processing channel {channel} out of {len(data)}:")
                 if i < len(data):
                     # data[i] is the array of time bins for this channel
                     time_bins = data[i]  # Array of counts per time bin
+                    # print(f" DEBUG: Time bins data length {len(time_bins)}")
+                    # print(f" DEBUG: Time bins data sample {time_bins} ...")
                     total_counts = sum(time_bins)  # Sum all bins for total counts
                     counts[channel] = int(total_counts)
                     

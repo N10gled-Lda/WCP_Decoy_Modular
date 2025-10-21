@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 
 USE_SIMULATION = True  # Set to False to use real hardware by default
 POLARIZATIONS = [
-    ("H", "Horizontal (0 deg)"),
-    ("V", "Vertical (90 deg)"),
-    ("D", "Diagonal (45 deg)"),
-    ("A", "Anti-diagonal (135 deg)"),
+    ("H", "H (0º)"),
+    ("V", "V (90º)"),
+    ("D", "D (45º)"),
+    ("A", "A (135º)"),
 ]
 
 def run_in_background(func):
@@ -62,7 +62,7 @@ class TimeTaggerControllerGUI(ctk.CTk):
         super().__init__()
 
         self.title("TimeTagger Hardware Interface for Testing Bob")
-        self.geometry("1000x700")
+        self.geometry("600x900")
 
         # Thread pool for hardware operations
         self.thread_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="TimeTaggerOp")
@@ -74,7 +74,9 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.timetagger_controller: Optional[SimpleTimeTaggerController] = None
         self.driver: Optional[Union[SimpleTimeTaggerHardware, SimpleTimeTaggerSimulator]] = None
         self.connected = False
-
+        self.results_history: List[Dict[str, int]] = []
+        self.result_cells: List[Dict[str, ctk.CTkLabel]] = []
+        
         # Measurement state
         self.is_measuring = False
         self.measurement_task = None
@@ -82,14 +84,15 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.current_max_rows = 0
 
         # Variables for measurement configuration
-        self.status_var = ctk.StringVar(value="Status: Disconnected")
+        self.device_name_var = ctk.StringVar(value="Swabian TimeTagger")
+        self.status_var = ctk.StringVar(value="● Disconnected")
         self.available_channels_var = ctk.StringVar(value="1,2,3,4")
         self.polarization_vars: Dict[str, ctk.StringVar] = {
             pol: ctk.StringVar(value=str(idx + 1)) for idx, (pol, _) in enumerate(POLARIZATIONS)
         }
         self.bin_duration_ms_var = ctk.StringVar(value="1000")
         self.num_rows_var = ctk.StringVar(value="10")
-        self.measurement_mode_var = ctk.StringVar(value="continuous")
+        self.continuous_var = ctk.BooleanVar(value=True)
         self.repeat_count_var = ctk.StringVar(value="10")
         self.use_simulator_var = ctk.BooleanVar(value=True)
         
@@ -115,147 +118,246 @@ class TimeTaggerControllerGUI(ctk.CTk):
 
     def setup_gui(self):
         """Set up the main GUI layout."""
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
 
-        # Top frame for connection and configuration
-        config_frame = ctk.CTkFrame(self)
-        config_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-        self.setup_config_frame(config_frame)
+        # Top frame for connection
+        connection_frame = ctk.CTkFrame(self)
+        connection_frame.pack(fill="x", padx=10, pady=(10, 0))
+        self.setup_connection_frame(connection_frame)
+
+        # Second top frame for channel and measurement config
+        setting_frame = ctk.CTkFrame(self)
+        setting_frame.pack(fill="x", padx=10, pady=(10, 0))
+        self.setup_channel_measurement_frame(setting_frame)
 
         # Bottom frame for results
         results_frame = ctk.CTkFrame(self)
-        results_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+        results_frame.pack(fill="both", expand=True, padx=10, pady=(10, 0))
         self.setup_results_frame(results_frame)
+        
+        # LOG
+        log_frame = ctk.CTkFrame(self)
+        log_frame.pack(fill="x", padx=10, pady=10)
+        ctk.CTkLabel(log_frame, text="Log", font=ctk.CTkFont(size=16, weight="bold")).pack(padx=10, pady=(10, 5))
+        self.logbox = ctk.CTkTextbox(log_frame, height=120)
+        self.logbox.pack(fill="x", expand=True, padx=10, pady=(0,10))
 
-    def setup_config_frame(self, parent_frame: ctk.CTkFrame):
-        """Setup the connection and measurement configuration widgets."""
-        parent_frame.grid_columnconfigure(1, weight=1)
+        # TODO: UNCOMENT AFTER NEW MEASUREMENT RESULTS SECTION
+        # self.update_result_table_capacity(int(self.num_rows_var.get()))
+
+    def setup_connection_frame(self, connection_frame: ctk.CTkFrame):
+        """Setup the connection configuration widgets."""
+        # connection_frame = ctk.CTkFrame(parent_frame, fg_color="red")
+        # connection_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        connection_frame.grid_columnconfigure((1,2,3), weight=1)
 
         # --- Connection ---
-        connection_frame = ctk.CTkFrame(parent_frame)
-        connection_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew", columnspan=4)
-        connection_frame.grid_columnconfigure(1, weight=1)
+        # Title
+        title_label = ctk.CTkLabel(connection_frame, text="TimeTagger Connection", 
+                                   font=ctk.CTkFont(size=16, weight="bold"))
+        title_label.grid(row=0, column=0, columnspan=4, padx=10, pady=(5,0))
 
-        ctk.CTkLabel(connection_frame, text="TimeTagger Connection").grid(row=0, column=0, columnspan=4, pady=(5,10))
+        # Device name (for display only, hardware auto-detects)
+        # TODO: Change this entry to a dropdown menu (combobox) for multiple devices. And subquent device_name_var updates.
+        ctk.CTkLabel(connection_frame, text="Device Name:").grid(row=1, column=0, padx=10, pady=5, sticky="e")
+        self.device_name_entry = ctk.CTkEntry(connection_frame, textvariable=self.device_name_var, 
+                                             state="readonly")
+        self.device_name_entry.grid(row=1, column=1, columnspan=2, padx=10, pady=5, sticky="we")
+ 
+        # Scan button
+        self.scan_button = ctk.CTkButton(connection_frame, text="Scan", command=self.scan_timetagger, width=80)
+        self.scan_button.grid(row=1, column=3, padx=10, pady=5, sticky="e")
 
-        self.connect_button = ctk.CTkButton(connection_frame, text="Connect", command=self.toggle_connection_async)
-        self.connect_button.grid(row=1, column=0, padx=10, pady=5)
 
-        self.connection_status_label = ctk.CTkLabel(connection_frame, textvariable=self.status_var, text_color="red")
-        self.connection_status_label.grid(row=1, column=1, padx=10, pady=5, sticky="w")
-        
+        # Status label
+        ctk.CTkLabel(connection_frame, text="Status:", font=ctk.CTkFont(weight="bold")).grid(row=2, column=0, padx=6, pady=5, sticky="e")
+        self.status_label = ctk.CTkLabel(connection_frame, textvariable=self.status_var)
+        self.status_label.grid(row=2, column=1, padx=6, pady=5, sticky="w")
+
+        # Use simulator switch
         self.use_sim_switch = ctk.CTkSwitch(connection_frame, text="Use Simulator", onvalue=True, offvalue=False)
-        self.use_sim_switch.grid(row=1, column=2, padx=10, pady=5)
+        self.use_sim_switch.grid(row=2, column=2, padx=10, pady=5)
         self.use_sim_switch.select() if USE_SIMULATION else self.use_sim_switch.deselect()
 
+        # Connect/Disconnect button
+        self.connect_button = ctk.CTkButton(connection_frame, text="Connect", command=self.toggle_connection_async, width=100)
+        self.connect_button.grid(row=2, column=3, padx=10, pady=(5,10), sticky="e")
+
+    def setup_channel_measurement_frame(self, parent_frame: ctk.CTkFrame):
+        """Setup the channel and measurement configuration widgets."""
+        parent_frame.grid_columnconfigure((0,1), weight=1)
+        parent_frame.grid_rowconfigure(0, weight=1)
         # --- Channel Configuration ---
-        channel_frame = ctk.CTkFrame(parent_frame)
-        channel_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew", columnspan=4)
-        ctk.CTkLabel(channel_frame, text="Channel Polarization Mapping").pack(pady=(5,10))
+        channel_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
+        channel_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+        # Title
+        ctk.CTkLabel(channel_frame, text="Channel Mapping", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(5,0))
 
-        self.channel_map_entries = {}
-        self.channel_map_labels = {1: "H (0°)", 2: "V (90°)", 3: "D (45°)", 4: "A (135°)"}
+        # TODO: CONFIRM THAT THIS IS NOT NEEDED ANYMORE BEFORE REMOVING
+        # self.channel_map_entries = {}
+        # self.channel_map_labels = {1: "H (0°)", 2: "V (90°)", 3: "D (45°)", 4: "A (135°)"}
         
-        channel_grid_frame = ctk.CTkFrame(channel_frame)
-        channel_grid_frame.pack(pady=5, padx=10)
+        # channel_grid_frame = ctk.CTkFrame(channel_frame)
+        # channel_grid_frame.pack(pady=5, padx=10)
 
-        for i in range(4):
-            channel = i + 1
-            ctk.CTkLabel(channel_grid_frame, text=f"Channel {channel}:").grid(row=i, column=0, padx=5, pady=2, sticky="w")
-            entry = ctk.CTkEntry(channel_grid_frame, placeholder_text=f"e.g., {self.channel_map_labels.get(channel, '')}")
-            entry.grid(row=i, column=1, padx=5, pady=2)
-            entry.insert(0, self.channel_map_labels.get(channel, ''))
-            self.channel_map_entries[channel] = entry
+        # for i in range(4):
+        #     channel = i + 1
+        #     ctk.CTkLabel(channel_grid_frame, text=f"Channel {channel}:").grid(row=i, column=0, padx=5, pady=2, sticky="w")
+        #     entry = ctk.CTkEntry(channel_grid_frame, placeholder_text=f"e.g., {self.channel_map_labels.get(channel, '')}")
+        #     entry.grid(row=i, column=1, padx=5, pady=2)
+        #     entry.insert(0, self.channel_map_labels.get(channel, ''))
+        #     self.channel_map_entries[channel] = entry
 
-        # ctk.CTkLabel(channel_frame, text="Channels (comma separated)").grid(
-        #     row=0, column=0, padx=6, pady=6, sticky="w"
-        # )
-        # channel_entry = ctk.CTkEntry(channel_frame, textvariable=self.available_channels_var)
-        # channel_entry.grid(row=0, column=1, padx=6, pady=6, sticky="ew")
-        # self.channel_entry = channel_entry
+        channel_frame_1 = ctk.CTkFrame(channel_frame)
+        channel_frame_1.pack(pady=0, padx=0, fill="x", expand=True)
+        ctk.CTkLabel(channel_frame_1, text="Channels (comma separated):", font=ctk.CTkFont(size=12, weight="bold")).pack(side="top", padx=0, pady=0, fill="x", expand=True)
+        
+        self.channel_entry = ctk.CTkEntry(channel_frame_1, textvariable=self.available_channels_var, width=100)
+        self.channel_entry.pack(side="left", padx=(0,2), pady=(0,5), fill="x", expand=True)
+        refresh_button = ctk.CTkButton(
+            channel_frame_1,
+            text="Refresh Options",
+            command=self.refresh_option_menus,
+            width=120,
+        )
+        refresh_button.pack(side="left", padx=(2,0), pady=(0,5))
 
-        # ctk.CTkLabel(channel_frame, text="Polarization mapping").grid(
-        #     row=1, column=0, columnspan=2, padx=6, pady=(12, 6), sticky="w"
-        # )
+        channel_frame_2 = ctk.CTkFrame(channel_frame)
+        channel_frame_2.pack(pady=2, padx=0, fill="both", expand=True)
+        channel_frame_2.grid_columnconfigure(0, weight=1)
+        channel_frame_2.grid_columnconfigure(1, weight=1)
+        self.channel_options: Dict[str, ctk.CTkOptionMenu] = {}
+        for idx, (code, description) in enumerate(POLARIZATIONS):
+            ctk.CTkLabel(channel_frame_2, text=f"{description}:").grid(row=idx, column=0, padx=6, pady=4, sticky="e")
+            option = ctk.CTkOptionMenu(
+                channel_frame_2,
+                variable=self.polarization_vars[code],
+                values=self.get_available_channels(),
+            )
+            option.grid(row=idx, column=1, padx=(6,0), pady=4, sticky="w")
+            self.channel_options[code] = option
+            setattr(self, f"pol_option_{code}", option)
 
-        # for idx, (code, description) in enumerate(POLARIZATIONS):
-        #     ctk.CTkLabel(channel_frame, text=f"{code}:").grid(row=2 + idx, column=0, padx=6, pady=4, sticky="w")
-        #     option = ctk.CTkOptionMenu(
-        #         channel_frame,
-        #         variable=self.polarization_vars[code],
-        #         values=self.get_available_channels(),
-        #     )
-        #     option.grid(row=2 + idx, column=1, padx=6, pady=4, sticky="ew")
-        #     setattr(self, f"pol_option_{code}", option)
 
         # --- Measurement Configuration ---
-        measure_frame = ctk.CTkFrame(parent_frame)
-        measure_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew", columnspan=4)
-        measure_frame.grid_columnconfigure((0,1,2,3,4), weight=1)
+        measure_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
+        measure_frame.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+        measure_frame.grid_columnconfigure((0,1), weight=1)
+        measure_frame.grid_rowconfigure((0,1,2,3,4), weight=1)
 
-        ctk.CTkLabel(measure_frame, text="Measurement Control").grid(row=0, column=0, columnspan=5, pady=(5,10))
+        ctk.CTkLabel(measure_frame, text="Measurement Control", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, columnspan=5, pady=(5,10))
 
         ctk.CTkLabel(measure_frame, text="Time per Bin (ms):").grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        self.time_bin_entry = ctk.CTkEntry(measure_frame, width=80, textvariable=self.bin_duration_ms_var)
+        self.time_bin_entry = ctk.CTkEntry(measure_frame, width=100, textvariable=self.bin_duration_ms_var)
         self.time_bin_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
         # self.time_bin_entry.insert(0, "1000")
 
         ctk.CTkLabel(measure_frame, text="Num Bins to Show:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
-        self.num_bins_entry = ctk.CTkEntry(measure_frame, width=80, textvariable=self.num_rows_var)
+        self.num_bins_entry = ctk.CTkEntry(measure_frame, width=100, textvariable=self.num_rows_var)
         self.num_bins_entry.grid(row=2, column=1, padx=5, pady=5, sticky="w")
         # self.num_bins_entry.insert(0, "10")
 
-        self.measure_button = ctk.CTkButton(measure_frame, text="Start Measurement", command=self.toggle_measurement, state="disabled")
-        self.measure_button.grid(row=1, column=2, rowspan=2, padx=10, pady=5)
+        # TODO: CONFIRM IF THIS IS NEEDED ANYMORE BEFORE REMOVING
+        # self.continuous_switch = ctk.CTkSwitch(measure_frame, text="Continuous", onvalue=True, offvalue=False)
+        # self.continuous_switch.grid(row=3, column=0, padx=10, pady=5)
+        # self.continuous_switch.select()
 
-        self.continuous_switch = ctk.CTkSwitch(measure_frame, text="Continuous", onvalue=True, offvalue=False)
-        self.continuous_switch.grid(row=1, column=3, padx=10, pady=5)
-        self.continuous_switch.select()
+        self.radio_continuous = ctk.CTkRadioButton(
+            measure_frame,
+            text="Continuous",
+            variable=self.continuous_var,
+            value=True,
+            command=self.on_mode_changed,
+        )
+        self.radio_continuous.grid(row=3, column=0, padx=4, pady=4, sticky="w")
+        self.radio_finite = ctk.CTkRadioButton(
+            measure_frame,
+            text="Finite",
+            variable=self.continuous_var,
+            value=False,
+            command=self.on_mode_changed,
+        )
+        self.radio_finite.grid(row=3, column=1, padx=4, pady=4, sticky="w")
 
-        self.fixed_time_entry = ctk.CTkEntry(measure_frame, placeholder_text="Total time (s)", width=100, state="disabled")
-        self.fixed_time_entry.grid(row=2, column=3, padx=10, pady=5)
-        self.continuous_switch.configure(command=lambda: self.fixed_time_entry.configure(state="normal" if not self.continuous_switch.get() else "disabled"))
+        ctk.CTkLabel(measure_frame, text="Fixed Time (s):").grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        self.fixed_time_entry = ctk.CTkEntry(measure_frame, width=100, state="disabled")
+        self.fixed_time_entry.grid(row=4, column=1, padx=5, pady=5, sticky="w")
+        # self.continuous_switch.configure(command=lambda: self.fixed_time_entry.configure(state="normal" if not self.continuous_switch.get() else "disabled"))
 
-        # mode_frame = ctk.CTkFrame(settings_frame)
-        # mode_frame.grid(row=2, column=0, columnspan=2, padx=6, pady=(6, 6), sticky="ew")
-        # mode_frame.grid_columnconfigure(1, weight=1)
-        # ctk.CTkLabel(mode_frame, text="Measurement mode").grid(row=0, column=0, columnspan=2, padx=4, pady=4)
-        # ctk.CTkRadioButton(
-        #     mode_frame,
-        #     text="Continuous",
-        #     variable=self.measurement_mode_var,
-        #     value="continuous",
-        # ).grid(row=1, column=0, padx=4, pady=4, sticky="w")
-        # ctk.CTkRadioButton(
-        #     mode_frame,
-        #     text="Finite",
-        #     variable=self.measurement_mode_var,
-        #     value="finite",
-        # ).grid(row=1, column=1, padx=4, pady=4, sticky="w")
-
+        # TODO: CHECK IF IS BETTER TO HAVE A REPEAT COUNT FOR FIXED TIME
         # ctk.CTkLabel(mode_frame, text="Finite repeats").grid(row=2, column=0, padx=4, pady=(6, 4), sticky="w")
         # self.repeat_entry = ctk.CTkEntry(mode_frame, textvariable=self.repeat_count_var)
         # self.repeat_entry.grid(row=2, column=1, padx=4, pady=(6, 4), sticky="ew")
         
+        self.measure_button = ctk.CTkButton(measure_frame, text="Start Measurement", command=self.toggle_measurement, state="disabled")
+        self.measure_button.grid(row=5, column=0, columnspan=2, padx=10, pady=5)
+
 
     def setup_results_frame(self, parent_frame: ctk.CTkFrame):
         """Setup the frame for displaying measurement results."""
-        parent_frame.grid_columnconfigure(0, weight=1)
-        parent_frame.grid_rowconfigure(1, weight=1)
+        parent_frame.grid_columnconfigure((0,1,2,3,4,5), weight=1)
+        parent_frame.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(parent_frame, text="Measurements Results (Counts per Bin)", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, columnspan=6, pady=(5,0))
+
+        # Header labels
+        bin_header = ctk.CTkLabel(parent_frame, text="Bin Index", font=ctk.CTkFont(size=14, weight="bold"))
+        bin_header.grid(row=1, column=0, padx=15, pady=5)
+        time_header = ctk.CTkLabel(parent_frame, text="Time (s)", font=ctk.CTkFont(size=14, weight="bold"))
+        time_header.grid(row=1, column=1, padx=15, pady=5)
+        polarizations = [desc for _, desc in POLARIZATIONS]
+        for col_idx, pol_name in enumerate(polarizations):
+            # Header
+            header = ctk.CTkLabel(parent_frame, text=pol_name, 
+                                font=ctk.CTkFont(size=14, weight="bold"))
+            header.grid(row=1, column=col_idx+2, padx=15, pady=5)
+
+        self.results_scrollable_frame = ctk.CTkScrollableFrame(parent_frame)
+        # self.results_scrollable_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.results_scrollable_frame.grid(row=2, column=0, columnspan=6, sticky="nsew", padx=10, pady=10)
+        # self.results_scrollable_frame.grid_columnconfigure(0, weight=1)
+        self.results_scrollable_frame.grid_columnconfigure(tuple(range(len(polarizations) + 2)), weight=1) 
+        # columnconfigure: len of POLARIZATIONS + bin index + time (bin index fixed)
         
-        ctk.CTkLabel(parent_frame, text="Measurements", font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, pady=5)
-
-        self.results_scrollable_frame = ctk.CTkScrollableFrame(parent_frame, label_text="Counts per Bin")
-        self.results_scrollable_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
-        self.results_scrollable_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
-
+        
+                
     def toggle_connection_async(self):
         """Handle the connect/disconnect button click."""
         if self.timetagger_controller and self.timetagger_controller.is_initialized():
             self.disconnect_from_timetagger()
         else:
             self.connect_to_timetagger()
+
+    def on_mode_changed(self):
+        """Handle measurement mode change"""
+        self.continuous_mode = self.continuous_var.get()
+        
+        if self.continuous_mode:
+            self.fixed_time_entry.configure(state="disabled")
+        else:
+            self.fixed_time_entry.configure(state="normal")
+
+    @run_in_background
+    def scan_timetagger(self):
+        """Scan for connected TimeTagger devices in a background thread."""
+        self.schedule_gui_update(lambda: self.connect_button.configure(state="disabled", text="Scanning..."))
+        self.device_name_var.set("Scanning...")
+        try:
+            temp_timetagger = SimpleTimeTaggerHardware()
+            devices = temp_timetagger.scan_for_devices(5.0)
+            if devices:
+                logger.info(f"Found TimeTagger devices: {devices}")
+                self.schedule_gui_update(lambda: self.log_message(f"Found devices: {devices}", "green"))
+                self.schedule_gui_update(lambda: self.device_name_var.set(devices[0]))
+            else:
+                logger.info("No TimeTagger devices found.")
+                self.schedule_gui_update(lambda: self.log_message("No devices found.", "red"))
+                self.schedule_gui_update(lambda: self.device_name_var.set("No devices found"))
+        except Exception as e:
+            logger.error(f"Error scanning for TimeTagger devices: {e}", exc_info=True)
+            self.schedule_gui_update(lambda: self.log_message(f"Error scanning for devices: {e}", "red"))
+            self.schedule_gui_update(lambda: self.device_name_var.set("Error during scan"))
+        finally:
+            self.schedule_gui_update(lambda: self.connect_button.configure(state="normal", text="Connect"))
 
     @run_in_background
     def connect_to_timetagger(self):
@@ -269,7 +371,7 @@ class TimeTaggerControllerGUI(ctk.CTk):
         try:
             if use_sim:
                 logger.info("Using TimeTagger simulator.")
-                driver = SimpleTimeTaggerSimulator(
+                self.driver = SimpleTimeTaggerSimulator(
                     detector_channels=channels_int,
                     dark_count_rate=50.0,
                     signal_count_rate=200.0,
@@ -277,27 +379,32 @@ class TimeTaggerControllerGUI(ctk.CTk):
                 )
             else:
                 logger.info("Using TimeTagger hardware.")
-                driver = SimpleTimeTaggerHardware(detector_channels=channels_int)
+                self.driver = SimpleTimeTaggerHardware(detector_channels=channels_int)
 
-            self.timetagger_controller = SimpleTimeTaggerController(driver)
-            
+            self.timetagger_controller = SimpleTimeTaggerController(self.driver)
+
             if self.timetagger_controller.initialize():
                 logger.info("TimeTagger connected successfully.")
-                self.schedule_gui_update(lambda: self.status_var.set("Status: Connected"))
-                self.schedule_gui_update(lambda: self.connection_status_label.configure(text_color="green"))
+                connection_type = "simulator" if use_sim else "hardware"
+                self.schedule_gui_update(lambda: self.log_message(f"TimeTagger connected successfully ({connection_type}).", "green"))
+                self.connected = True
+                self.schedule_gui_update(lambda: self.status_var.set(self.connection_status_text()))
+                self.schedule_gui_update(lambda: self.status_label.configure(text_color="green"))
                 self.schedule_gui_update(lambda: self.connect_button.configure(text="Disconnect"))
                 self.schedule_gui_update(lambda: self.enable_controls(True))
-                # self.schedule_gui_update(self.refresh_option_menus) # TODO: UNCOMENT AFTER ADDING THE CHANNEL ENTRY
+                self.schedule_gui_update(self.refresh_option_menus)
             else:
                 logger.error("Failed to initialize TimeTagger.")
-                self.schedule_gui_update(lambda: self.status_var.set("Status: Connection Failed"))
-                self.schedule_gui_update(lambda: self.connection_status_label.configure(text_color="red"))
+                self.schedule_gui_update(lambda: self.status_var.set("● Connection Failed"))
+                self.schedule_gui_update(lambda: self.log_message("Failed to initialize TimeTagger.", "red"))
+                self.schedule_gui_update(lambda: self.status_label.configure(text_color="red"))
                 self.timetagger_controller = None
 
         except Exception as e:
             logger.error(f"Error connecting to TimeTagger: {e}", exc_info=True)
-            self.schedule_gui_update(lambda: self.status_var.set("Status: Error"))
-            self.schedule_gui_update(lambda: self.connection_status_label.configure(text_color="red"))
+            self.schedule_gui_update(lambda: self.status_var.set("● Error"))
+            self.schedule_gui_update(lambda: self.log_message(f"Error connecting to TimeTagger: {e}", "red"))
+            self.schedule_gui_update(lambda: self.status_label.configure(text_color="red"))
             self.timetagger_controller = None
         finally:
             self.schedule_gui_update(lambda: self.connect_button.configure(state="normal"))
@@ -312,16 +419,27 @@ class TimeTaggerControllerGUI(ctk.CTk):
         if self.timetagger_controller:
             try:
                 self.timetagger_controller.shutdown()
+                self.connected = False
                 logger.info("TimeTagger disconnected successfully.")
-                self.schedule_gui_update(lambda: self.status_var.set("Status: Disconnected"))
-                self.schedule_gui_update(lambda: self.connection_status_label.configure(text_color="red"))
+                self.schedule_gui_update(lambda: self.log_message("TimeTagger disconnected.", "orange"))
+                self.schedule_gui_update(lambda: self.status_var.set(self.connection_status_text()))
+                self.schedule_gui_update(lambda: self.status_label.configure(text_color="red"))
                 self.schedule_gui_update(lambda: self.connect_button.configure(text="Connect"))
                 self.schedule_gui_update(lambda: self.enable_controls(False))
             except Exception as e:
                 logger.error(f"Error during TimeTagger shutdown: {e}", exc_info=True)
+                self.schedule_gui_update(lambda: self.log_message(f"Error during disconnection: {e}", "red"))
             finally:
                 self.timetagger_controller = None
-        
+                self.connected = False
+        if self.driver:
+            try:
+                self.driver.shutdown()
+            except Exception as e:
+                logger.error(f"Error during driver shutdown: {e}", exc_info=True)
+                self.schedule_gui_update(lambda: self.log_message(f"Error during driver shutdown: {e}", "red"))
+            self.driver = None
+            
         self.schedule_gui_update(lambda: self.connect_button.configure(state="normal"))
 
     def enable_controls(self, enabled: bool):
@@ -329,13 +447,17 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.measure_button.configure(state="normal" if enabled else "disabled")
         self.time_bin_entry.configure(state="normal" if enabled else "disabled")
         self.num_bins_entry.configure(state="normal" if enabled else "disabled")
-        self.continuous_switch.configure(state="normal" if enabled else "disabled")
+        self.radio_continuous.configure(state="normal" if enabled else "disabled")
+        self.radio_finite.configure(state="normal" if enabled else "disabled")
+        # self.continuous_switch.configure(state="normal" if enabled else "disabled")
         
-        is_fixed_time = enabled and not self.continuous_switch.get()
-        self.fixed_time_entry.configure(state="normal" if is_fixed_time else "disabled")
+        # is_fixed_time = enabled and not self.continuous_switch.get()
+        # is_fixed_time = enabled and not self.continuous_var.get()
+        # self.fixed_time_entry.configure(state="normal" if is_fixed_time else "disabled")
 
-        for entry in self.channel_map_entries.values():
-            entry.configure(state="normal" if enabled else "disabled")
+        for option in self.channel_options.values():
+            option.configure(state="normal" if enabled else "disabled")
+
 
     def get_available_channels(self) -> List[str]:
         """Get the list of available channels from the entry."""
@@ -366,23 +488,25 @@ class TimeTaggerControllerGUI(ctk.CTk):
         """Start the measurement loop."""
         if not self.timetagger_controller or not self.timetagger_controller.is_initialized():
             logger.error("Cannot start measurement: TimeTagger not connected.")
+            self.log_message("Error: TimeTagger not connected.", "red")
             return
 
         # TODO: DO SEPARATE VALIDATION OF PARAMETERS HERE
         # try:
         #     bin_duration_ms = float(self.bin_duration_ms_var.get())
         # except ValueError:
-        #     self.status_var.set("Status: invalid bin duration")
+        #     self.status_var.set("invalid bin duration")
         #     return
         # if bin_duration_ms <= 0:
-        #     self.status_var.set("Status: bin duration must be positive")
+        #     self.status_var.set("bin duration must be positive")
         #     return
         # duration_seconds = bin_duration_ms / 1000.0
 
         try:
             self.time_per_bin = float(self.bin_duration_ms_var.get()) / 1000.0
             self.num_bins_to_show = int(self.num_rows_var.get())
-            self.is_continuous = self.continuous_switch.get()
+            # self.is_continuous = self.continuous_switch.get()
+            self.is_continuous = self.continuous_var.get()
             
             self.total_measurement_time = None
             if not self.is_continuous:
@@ -394,19 +518,24 @@ class TimeTaggerControllerGUI(ctk.CTk):
             return
 
 
-        # mode = self.measurement_mode_var.get()
+        # mode = self.continuous_var.get()
         # repeat_target = None
-        # if mode == "finite":
+        # if not mode:
         #     try:
         #         repeat_target = int(self.repeat_count_var.get())
         #     except ValueError:
-        #         self.status_var.set("Status: invalid repeat count")
+        #         self.status_var.set("invalid repeat count")
         #         return
         #     if repeat_target <= 0:
-        #         self.status_var.set("Status: repeat count must be positive")
+        #         self.status_var.set("repeat count must be positive")
         #         return
 
+        # self.update_result_table_capacity(max_rows)
 
+        # mapping = self.get_polarization_mapping()
+        # if not mapping:
+        #     self.status_var.set("invalid polarization mapping")
+        #     return
 
         if self.time_per_bin <= 0:
             logger.error("Time per bin must be positive.")
@@ -425,6 +554,7 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.is_measuring = True
         self.measure_button.configure(text="Stop Measurement")
         self.measurement_start_time = time.time()
+        self.log_message("Measurement started.")
         self.measurement_task = self.thread_pool.submit(self._measurement_loop)
 
     def stop_measurement(self):
@@ -434,6 +564,7 @@ class TimeTaggerControllerGUI(ctk.CTk):
             # The loop will check self.is_measuring and exit, no need to force future
             pass
         self.measure_button.configure(text="Start Measurement")
+        self.log_message("Measurement stopped.")
 
     def _measurement_loop(self):
         """Background task for continuous measurement."""
@@ -463,11 +594,13 @@ class TimeTaggerControllerGUI(ctk.CTk):
                 break
             
             # if repeat_target is not None and iteration >= repeat_target:
+            #     self.schedule_gui_update(self.stop_measurement)
             #     break
 
             # if not self.is_measuring:
+            #     self.schedule_gui_update(self.stop_measurement)
             #     break
-            
+
             # Sleep to maintain the measurement interval
             elapsed = time.time() - start_time
             sleep_time = max(0, self.time_per_bin - elapsed)
@@ -500,14 +633,88 @@ class TimeTaggerControllerGUI(ctk.CTk):
             count = counts.get(channel, 0)
             ctk.CTkLabel(self.results_scrollable_frame, text=str(count)).grid(row=row, column=i + 1, padx=5)
 
+
+                        
     def get_polarization_labels(self) -> Dict[int, str]:
         """Get the current polarization labels from the GUI."""
-        return {ch: entry.get() for ch, entry in self.channel_map_entries.items()}
+        # return {ch: entry.get() for ch, entry in self.channel_map_entries.items()}
+        # TODO: REMOVE THIS
+        return {int(self.polarization_vars[code].get()): code for code, _ in POLARIZATIONS}
+    
+    def get_polarization_mapping(self) -> Dict[str, int]:
+        """Build map from polarization to channel."""
+        mapping: Dict[str, int] = {}
+        for code, _ in POLARIZATIONS:
+            value = self.polarization_vars[code].get()
+            try:
+                mapping[code] = int(value)
+            except ValueError:
+                return {}
+        return mapping
+        
+    def push_measurement_result(self, result: Dict[str, int], timestamp: str) -> None:
+        """Insert new measurement at top of the table."""
+        result_with_time = {**result, "timestamp": timestamp}
+        self.results_history.insert(0, result_with_time)
+        self.results_history = self.results_history[: self.current_max_rows]
+        self.refresh_results_table()
 
-    def log_message(self, message: str, color: str = "gray"):
+    def update_result_table_capacity(self, rows: int) -> None:
+        """Rebuild result table when capacity changes."""
+        if rows == self.current_max_rows and self.result_cells:
+            return
+        for widget in self.results_scrollable_frame.winfo_children():
+            widget.destroy()
+
+        header_labels = ["Time"] + [code for code, _ in POLARIZATIONS]
+        for col, label in enumerate(header_labels):
+            ctk.CTkLabel(self.results_scrollable_frame, text=label, font=("TkDefaultFont", 12, "bold")).grid(
+                row=0, column=col, padx=4, pady=4, sticky="ew"
+            )
+
+        self.result_cells = []
+        for row in range(rows):
+            cell_row: Dict[str, ctk.CTkLabel] = {}
+            time_label = ctk.CTkLabel(self.results_scrollable_frame, text="-")
+            time_label.grid(row=row + 1, column=0, padx=4, pady=2, sticky="ew")
+            cell_row["timestamp"] = time_label
+            for col, (code, _) in enumerate(POLARIZATIONS, start=1):
+                label = ctk.CTkLabel(self.results_scrollable_frame, text="-")
+                label.grid(row=row + 1, column=col, padx=4, pady=2, sticky="ew")
+                cell_row[code] = label
+            self.result_cells.append(cell_row)
+
+        self.current_max_rows = rows
+        self.results_history = self.results_history[:rows]
+        self.refresh_results_table()
+
+    def refresh_results_table(self) -> None:
+        """Update label text with latest history."""
+        for row_index in range(self.current_max_rows):
+            if row_index < len(self.results_history):
+                data = self.results_history[row_index]
+                for code, label in self.result_cells[row_index].items():
+                    label.configure(text=str(data.get(code, "-")))
+            else:
+                for label in self.result_cells[row_index].values():
+                    label.configure(text="-")
+
+    def connection_status_text(self) -> str:
+        """Return a user friendly connection status line."""
+        if not self.connected or not self.driver:
+            return "● Disconnected"
+        driver_kind = "hardware" if isinstance(self.driver, SimpleTimeTaggerHardware) else "simulator"
+        return f"● Connected ({driver_kind})"
+    
+    def log_message(self, message: str, color: str = "white"):
         """Log a message to the GUI."""
         # This could be a status bar at the bottom, for now just prints
         print(f"GUI_LOG: {message}")
+        ts = time.strftime("%H:%M:%S")
+        tag_name = f"log_{time.time()}"  # Create unique tag for each message
+        self.logbox.tag_config(tag_name, foreground=color)
+        self.logbox.insert("end", f"[{ts}] {message}\n", tag_name)
+        self.logbox.see("end")
 
     def on_closing(self):
         """Handle window closing event."""
