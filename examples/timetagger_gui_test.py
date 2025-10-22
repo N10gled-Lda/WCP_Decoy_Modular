@@ -300,16 +300,16 @@ class TimeTaggerControllerGUI(ctk.CTk):
         ctk.CTkLabel(parent_frame, text="Measurements Results (Counts per Bin)", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, columnspan=6, pady=(5,0))
 
         # Header labels
-        bin_header = ctk.CTkLabel(parent_frame, text="Bin Index", font=ctk.CTkFont(size=14, weight="bold"))
-        bin_header.grid(row=1, column=0, padx=15, pady=5)
-        time_header = ctk.CTkLabel(parent_frame, text="Time (s)", font=ctk.CTkFont(size=14, weight="bold"))
-        time_header.grid(row=1, column=1, padx=15, pady=5)
+        bin_header = ctk.CTkLabel(parent_frame, text="Bin Index", font=ctk.CTkFont(size=13, weight="bold"))
+        bin_header.grid(row=1, column=0, padx=15, pady=(5,0))
+        time_header = ctk.CTkLabel(parent_frame, text="Time (ms)", font=ctk.CTkFont(size=13, weight="bold"))
+        time_header.grid(row=1, column=1, padx=15, pady=(5,0))
         polarizations = [desc for _, desc in POLARIZATIONS]
         for col_idx, pol_name in enumerate(polarizations):
             # Header
             header = ctk.CTkLabel(parent_frame, text=pol_name, 
-                                font=ctk.CTkFont(size=14, weight="bold"))
-            header.grid(row=1, column=col_idx+2, padx=15, pady=5)
+                                font=ctk.CTkFont(size=13, weight="bold"))
+            header.grid(row=1, column=col_idx+2, padx=15, pady=(5,0))
 
         self.results_scrollable_frame = ctk.CTkScrollableFrame(parent_frame)
         # self.results_scrollable_frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -318,8 +318,10 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.results_scrollable_frame.grid_columnconfigure(tuple(range(len(polarizations) + 2)), weight=1) 
         # columnconfigure: len of POLARIZATIONS + bin index + time (bin index fixed)
         
-        
-                
+        # self.count_labels = {}
+        # TODO: CHECK IF DEFINE THE COUNT LABELS SO TO UPDATE THEM INSTEAD OF RECREATING EVERY TIME
+        # self.restart_initial_display()
+
     def toggle_connection_async(self):
         """Handle the connect/disconnect button click."""
         if self.timetagger_controller and self.timetagger_controller.is_initialized():
@@ -458,7 +460,6 @@ class TimeTaggerControllerGUI(ctk.CTk):
         for option in self.channel_options.values():
             option.configure(state="normal" if enabled else "disabled")
 
-
     def get_available_channels(self) -> List[str]:
         """Get the list of available channels from the entry."""
         channels_str = self.available_channels_var.get().strip()
@@ -491,70 +492,75 @@ class TimeTaggerControllerGUI(ctk.CTk):
             self.log_message("Error: TimeTagger not connected.", "red")
             return
 
-        # TODO: DO SEPARATE VALIDATION OF PARAMETERS HERE
-        # try:
-        #     bin_duration_ms = float(self.bin_duration_ms_var.get())
-        # except ValueError:
-        #     self.status_var.set("invalid bin duration")
-        #     return
-        # if bin_duration_ms <= 0:
-        #     self.status_var.set("bin duration must be positive")
-        #     return
-        # duration_seconds = bin_duration_ms / 1000.0
+        if self.is_measuring:
+            logger.warning("Measurement already in progress.")
+            self.log_message("Warning: Measurement already in progress.", "orange")
+            return
+        
+        
+        # Parse and validate measurement parameters
+        try:
+            self.time_per_bin = float(self.bin_duration_ms_var.get())
+        except ValueError:
+            logger.error("Invalid bin duration. Please enter a valid number.")
+            self.log_message("Error: Invalid bin duration.", "red")
+            return
+        if self.time_per_bin <= 0:
+            logger.error("Bin duration must be positive.")
+            self.log_message("Error: Bin duration must be positive.", "red")
+            return
+        self.time_per_bin /= 1000.0
 
         try:
-            self.time_per_bin = float(self.bin_duration_ms_var.get()) / 1000.0
             self.num_bins_to_show = int(self.num_rows_var.get())
-            # self.is_continuous = self.continuous_switch.get()
-            self.is_continuous = self.continuous_var.get()
-            
-            self.total_measurement_time = None
-            if not self.is_continuous:
+        except ValueError:
+            logger.error("Invalid number of bins to show. Please enter a valid integer.")
+            self.log_message("Error: Invalid number of bins to show.", "red")
+            return
+        if self.num_bins_to_show <= 0:
+            logger.error("Number of bins to show must be positive.")
+            self.log_message("Error: Number of bins to show must be positive.", "red")
+            return
+
+        self.is_continuous = self.continuous_var.get()
+        self.total_measurement_time = None
+        if not self.is_continuous:
+            try:
                 self.total_measurement_time = float(self.fixed_time_entry.get())
+            except (ValueError, TypeError):
+                logger.error("Invalid measurement parameters. Please enter valid numbers.")
+                self.log_message("Error: Invalid measurement parameters.", "red")
+                return
+            
+            if self.total_measurement_time <= 0:
+                logger.error("Fixed measurement time must be positive.")
+                self.log_message("Error: Fixed measurement time must be positive.", "red")
+                return
+        
+        # Update result table capacity
+        # self.update_result_table_capacity(self.num_bins_to_show)
 
-        except (ValueError, TypeError):
-            logger.error("Invalid measurement parameters. Please enter valid numbers.")
-            self.log_message("Error: Invalid measurement parameters.", "red")
-            return
 
-
-        # mode = self.continuous_var.get()
-        # repeat_target = None
-        # if not mode:
-        #     try:
-        #         repeat_target = int(self.repeat_count_var.get())
-        #     except ValueError:
-        #         self.status_var.set("invalid repeat count")
-        #         return
-        #     if repeat_target <= 0:
-        #         self.status_var.set("repeat count must be positive")
-        #         return
-
-        # self.update_result_table_capacity(max_rows)
-
-        # mapping = self.get_polarization_mapping()
-        # if not mapping:
+        # self.mapping = self.get_polarization_mapping() # {'H': 1, 'V': 2, 'D': 3, 'A': 4}
+        # if not self.mapping:
         #     self.status_var.set("invalid polarization mapping")
-        #     return
+            # return
+        # print(f"Using polarization mapping: {mapping}")
+        # self.log_message(f"Using polarization mapping: {mapping}", "blue")
 
-        if self.time_per_bin <= 0:
-            logger.error("Time per bin must be positive.")
-            return
 
         # Clear previous results
         for widget in self.results_scrollable_frame.winfo_children():
             widget.destroy()
-        self.bin_row_index = 0
         
-        # Create headers
-        headers = self.get_polarization_labels()
-        for i, header in enumerate(["Bin"] + list(headers.values())):
-             ctk.CTkLabel(self.results_scrollable_frame, text=header, font=ctk.CTkFont(weight="bold")).grid(row=0, column=i, padx=5, pady=5)
-
         self.is_measuring = True
+        self.timetagger_controller.set_measurement_duration(self.time_per_bin)
         self.measure_button.configure(text="Stop Measurement")
         self.measurement_start_time = time.time()
         self.log_message("Measurement started.")
+
+        self.bin_row_index = 0
+        # self.restart_initial_display()
         self.measurement_task = self.thread_pool.submit(self._measurement_loop)
 
     def stop_measurement(self):
@@ -572,12 +578,11 @@ class TimeTaggerControllerGUI(ctk.CTk):
         
         iteration = 0
         while self.is_measuring:
-            iteration += 1
-            start_time = time.time()
 
             # Check for fixed time limit
+            iteration_time = iteration * self.time_per_bin
             if not self.is_continuous and self.total_measurement_time is not None:
-                if (start_time - self.measurement_start_time) >= self.total_measurement_time:
+                if (iteration_time) >= self.total_measurement_time:
                     self.schedule_gui_update(self.stop_measurement)
                     break
             
@@ -586,13 +591,15 @@ class TimeTaggerControllerGUI(ctk.CTk):
                 counts = self.timetagger_controller.measure_counts()
                 
                 if counts:
-                    self.schedule_gui_update(lambda c=counts: self.add_result_row(c))
+                    timestamp = int((time.time() - self.measurement_start_time) * 1000)
+                    self.schedule_gui_update(lambda c=counts, ts=timestamp: self.add_result_row(c, ts))
 
             except Exception as e:
                 logger.error(f"Error during measurement: {e}", exc_info=True)
                 self.schedule_gui_update(lambda: self.log_message(f"Error: {e}", "red"))
                 break
             
+            iteration += 1
             # if repeat_target is not None and iteration >= repeat_target:
             #     self.schedule_gui_update(self.stop_measurement)
             #     break
@@ -601,46 +608,58 @@ class TimeTaggerControllerGUI(ctk.CTk):
             #     self.schedule_gui_update(self.stop_measurement)
             #     break
 
-            # Sleep to maintain the measurement interval
-            elapsed = time.time() - start_time
-            sleep_time = max(0, self.time_per_bin - elapsed)
-            # time.sleep(sleep_time)
-
         logger.info("Measurement loop stopped.")
 
-    def add_result_row(self, counts: Dict[int, int]):
+    def add_result_row(self, counts: Dict[int, int], timestamp: str):
         """Add a new row of results to the GUI."""
         self.bin_row_index += 1
         
         # Manage displayed bins
         if self.bin_row_index > self.num_bins_to_show:
-            # Find and remove the oldest row (row 1, since 0 is header)
+            # Find and remove the oldest row 
             for widget in self.results_scrollable_frame.grid_slaves():
-                if int(widget.grid_info()["row"]) == 1:
+                if int(widget.grid_info()["row"]) == 0:
                     widget.destroy()
             # Shift all other rows up
             for widget in self.results_scrollable_frame.grid_slaves():
-                 if widget.grid_info()["row"] > 1:
+                 if widget.grid_info()["row"] > 0:
                     widget.grid(row=widget.grid_info()["row"] - 1)
             self.bin_row_index -=1
 
 
-        row = self.bin_row_index
-        ctk.CTkLabel(self.results_scrollable_frame, text=str(row)).grid(row=row, column=0, padx=5)
-
+        row = self.bin_row_index-1
+        ctk.CTkLabel(self.results_scrollable_frame, text=str(row+1)).grid(row=row, column=0, padx=5)
+        ctk.CTkLabel(self.results_scrollable_frame, text=timestamp).grid(row=row, column=1, padx=5)
         pol_labels = self.get_polarization_labels()
         for i, channel in enumerate(pol_labels.keys()):
             count = counts.get(channel, 0)
-            ctk.CTkLabel(self.results_scrollable_frame, text=str(count)).grid(row=row, column=i + 1, padx=5)
+            ctk.CTkLabel(self.results_scrollable_frame, text=str(count)).grid(row=row, column=i + 2, padx=5)
+            # self.count_labels[channel][row].configure(text=str(count))
+
+        # TODO: TRY TO INSTEAD OF DESTROY AND MOVE ALL LABELS JUST MODIFY THE TEXT OF THE EXISTING LABELS
+        # try:
+        #     for pol_key in ["H", "V", "D", "A"]:
+        #         data = self.measurement_data[pol_key]
+        #         labels = self.count_labels[pol_key]
+                
+        #         # Display last N bins (where N is number of visible labels)
+        #         display_data = data[-len(labels):]
+                
+        #         for idx, label in enumerate(labels):
+        #             if idx < len(display_data):
+        #                 count = display_data[idx]
+        #                 label.configure(text=str(count))
+        #             else:
+        #                 label.configure(text="—")
 
 
-                        
     def get_polarization_labels(self) -> Dict[int, str]:
         """Get the current polarization labels from the GUI."""
         # return {ch: entry.get() for ch, entry in self.channel_map_entries.items()}
         # TODO: REMOVE THIS
         return {int(self.polarization_vars[code].get()): code for code, _ in POLARIZATIONS}
     
+
     def get_polarization_mapping(self) -> Dict[str, int]:
         """Build map from polarization to channel."""
         mapping: Dict[str, int] = {}
@@ -666,21 +685,16 @@ class TimeTaggerControllerGUI(ctk.CTk):
         for widget in self.results_scrollable_frame.winfo_children():
             widget.destroy()
 
-        header_labels = ["Time"] + [code for code, _ in POLARIZATIONS]
-        for col, label in enumerate(header_labels):
-            ctk.CTkLabel(self.results_scrollable_frame, text=label, font=("TkDefaultFont", 12, "bold")).grid(
-                row=0, column=col, padx=4, pady=4, sticky="ew"
-            )
 
         self.result_cells = []
         for row in range(rows):
             cell_row: Dict[str, ctk.CTkLabel] = {}
             time_label = ctk.CTkLabel(self.results_scrollable_frame, text="-")
-            time_label.grid(row=row + 1, column=0, padx=4, pady=2, sticky="ew")
+            time_label.grid(row=row, column=1, padx=4, pady=2, sticky="ew")
             cell_row["timestamp"] = time_label
             for col, (code, _) in enumerate(POLARIZATIONS, start=1):
                 label = ctk.CTkLabel(self.results_scrollable_frame, text="-")
-                label.grid(row=row + 1, column=col, padx=4, pady=2, sticky="ew")
+                label.grid(row=row, column=col + 1, padx=4, pady=2, sticky="ew")
                 cell_row[code] = label
             self.result_cells.append(cell_row)
 
@@ -691,13 +705,47 @@ class TimeTaggerControllerGUI(ctk.CTk):
     def refresh_results_table(self) -> None:
         """Update label text with latest history."""
         for row_index in range(self.current_max_rows):
+            print(f"Updating row {row_index}, total history length: {len(self.results_history)}")
             if row_index < len(self.results_history):
                 data = self.results_history[row_index]
+                print(f"Refreshing row {row_index} with data: {data}")
+                print(f"Result cells: {self.result_cells[row_index]}")
                 for code, label in self.result_cells[row_index].items():
+                    print(f"Updating cell for code {code} with label {label}")
                     label.configure(text=str(data.get(code, "-")))
             else:
                 for label in self.result_cells[row_index].values():
                     label.configure(text="-")
+
+    def restart_initial_display(self):
+        """Update initial results display"""
+        # Create the labels for the number of rows specified
+        for bin_idx in range(int(self.num_rows_var.get())):  # Max 10 visible bins
+            # Bin index label
+            bin_label = ctk.CTkLabel(self.results_scrollable_frame, text=f"{bin_idx+1}", 
+                                    font=ctk.CTkFont(size=12))
+            bin_label.grid(row=bin_idx, column=0, padx=15, pady=2)
+
+            # Time label
+            time_label = ctk.CTkLabel(self.results_scrollable_frame, text="—", 
+                                     font=ctk.CTkFont(size=12))
+            time_label.grid(row=bin_idx, column=1, padx=15, pady=2)
+        for col_idx, (pol_key, _) in enumerate(POLARIZATIONS):
+            # Initialize list for count labels
+            self.count_labels[pol_key] = []
+
+            # Create labels for bins (will be populated during measurement)
+            for bin_idx in range(int(self.num_rows_var.get())):  # Max 10 visible bins
+                count_label = ctk.CTkLabel(self.results_scrollable_frame, text="—", 
+                                          font=ctk.CTkFont(size=12))
+                count_label.grid(row=bin_idx, column=col_idx+2, padx=15, pady=2)
+                self.count_labels[pol_key].append(count_label)
+
+    def clear_results_display(self):
+        """Clear results display"""
+        for (pol_key, _) in POLARIZATIONS:
+            for label in self.count_labels[pol_key]:
+                label.configure(text="—")
 
     def connection_status_text(self) -> str:
         """Return a user friendly connection status line."""
@@ -726,6 +774,30 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.destroy()
 
 if __name__ == "__main__":
+    # Set CustomTkinter appearance
+    ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
+    # Load custom theme with primary orange #fe9409
+    THEME = "entangled_orange"
+    THEME = "green"
+    THEME = "dark_blue"
+    THEME = "orange"
+    try:
+        theme_path = os.path.join(os.path.dirname(__file__), 'themes', THEME + '.json')
+        if os.path.exists(theme_path):
+            ctk.set_default_color_theme(theme_path)
+        else:
+            ctk.set_default_color_theme("blue")
+    except Exception:
+        ctk.set_default_color_theme("blue")
+
+    # Optional: slightly increase widget scaling for comfort
+    try:
+        ctk.set_widget_scaling(1.05)
+        ctk.set_window_scaling(1.0)
+    except Exception:
+        pass
+    
+    # Create and run the application
     app = TimeTaggerControllerGUI()
     app.protocol("WM_DELETE_WINDOW", app.on_closing)
     app.mainloop()
