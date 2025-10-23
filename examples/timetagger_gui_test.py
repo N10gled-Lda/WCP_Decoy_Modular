@@ -86,10 +86,12 @@ class TimeTaggerControllerGUI(ctk.CTk):
         # Variables for measurement configuration
         self.device_name_var = ctk.StringVar(value="Swabian TimeTagger")
         self.status_var = ctk.StringVar(value="● Disconnected")
-        self.available_channels_var = ctk.StringVar(value="1,2,3,4")
+        # self.available_channels_var = ctk.StringVar(value="1,2,3,4")
+        self.available_channels_var = ctk.StringVar(value="4,3,2,1")
         self.polarization_vars: Dict[str, ctk.StringVar] = {
-            pol: ctk.StringVar(value=str(idx + 1)) for idx, (pol, _) in enumerate(POLARIZATIONS)
+            pol: ctk.StringVar(value=str(len(POLARIZATIONS) - idx)) for idx, (pol, _) in enumerate(POLARIZATIONS)
         }
+        print(f"!!!!Initial polarization vars: {[var.get() for var in self.polarization_vars.values()]}")
         self.bin_duration_ms_var = ctk.StringVar(value="1000")
         self.num_rows_var = ctk.StringVar(value="10")
         self.continuous_var = ctk.BooleanVar(value=True)

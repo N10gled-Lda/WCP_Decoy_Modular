@@ -83,12 +83,6 @@ class MockClassicalChannel(ClassicalChannel):
             median_socket.close()
 
 
-
-
-
-
-
-
     def start_reconciliation(self):
         self._reconciliation_started = True
 

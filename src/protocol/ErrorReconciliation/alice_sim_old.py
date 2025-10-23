@@ -6,6 +6,7 @@ import time
 from os import access
 
 
+from ..PrivacyAmplification.privacy_amplification import PrivacyAmplification
 #from multiprocessing.connection import Connection
 
 #from matplotlib.backends.backend_nbagg import connection_info
@@ -22,7 +23,6 @@ from ..classical_communication_channel.communication_channel.mac_config import M
 #from cascade.algorithm import ALGORITHMS
 from .cascade.key import Key
 #from cascade.mock_classical_channel import MockClassicalChannel
-from ..PrivacyAmplification.privacy_amplification import PrivacyAmplification
 #import threading
 from collections import deque
 import threading
@@ -102,6 +102,9 @@ class AliceManager:
 
     def exchange_initial_key(self):
 
+        if __debug__:
+            print("---------------NEW RUN------------------")
+
         print("Alice waiting for Key from Bob")
 
         # Listen for incoming messages and allow sending in a loop
@@ -173,6 +176,15 @@ class AliceManager:
 
             total_time_sleep += self.propagation_delay
 
+            if __debug__:
+                print(f"Total Time: {total_time}")
+                print(f"Time receiving message: {aux}")
+                print(f"Total Time CORRECT (time receiving message + DELAY: {to_tim}")
+                print(f"Total Time Sleep: {total_time_sleep}")
+
+            if __debug__:
+                print(f"Blocks Received (Bytes): {len(message_received)}")
+
             if b"end_reconciliation_final" in message_received:
                 print(f"End Reconciliation message received")
                 # end_reconciliation_final_array.append(thread_id)
@@ -199,7 +211,13 @@ class AliceManager:
 
                 parities = self.alice_obj.ask_parities_secure_optimized(ask_parity_blocks)
 
+                if __debug__:
+                    print(f"Parities Computed: {parities[:10]}")
+
                 serialized_correct_parities = pickle.dumps(parities)
+
+                if __debug__:
+                    print(f"Size of the serialized correct parities (Bytes): {len(serialized_correct_parities)}")
 
                 self.send_message_to_bob(serialized_correct_parities)
             else:
@@ -220,6 +238,8 @@ class AliceManager:
         end_reply = b"end_reply"
         self.connection_w_bob.sendall(end_reply)
 
+        if __debug__:
+            print(f"Correct parities finished sending")
 
 
     @staticmethod
@@ -316,6 +336,9 @@ class AliceManager:
 
         if start_time != 0:
             aux2 = (end_time - start_time) + propagation_delay_aux
+            if __debug__:
+                print(
+                    f"total time sleep receiving message: Start: {start_time} | End: {end_time} | Time in seconds {aux2} seconds")
             # time.sleep((end_time - start_time) * 1.238)
             # aux = (end_time - start_time) + GEO_DELAY
 
@@ -446,6 +469,7 @@ class AliceManagerChannel(AliceManager):
 
                 thread_idx, ask_parity_blocks = pickle.loads(message_received)
 
+                print(f"Mensagem RECEBIDA: {len(message_received)}")
 
                 self.alice_array[thread_idx].add_receiving_information(ask_parity_blocks)
             except queue.Empty as e:
@@ -553,6 +577,7 @@ class Alice:
 
     def send_message_to_bob(self, data_to_send):
     #with self.lock:
+        print(f"Alice Thread Id: {self.thread_id} adding information to Send Buffer")
         data = pickle.dumps((self.thread_id,data_to_send))
         self.send_buffer.appendleft(data)
 
@@ -567,18 +592,6 @@ class Alice:
             parities_aux.append((start_index, end_index, parity))
 
         return parities_aux
-
-    def ask_parities_secured_optimized_indices(self, blocks):
-        """Calculate the block parities using its indices instead of start, end and shuffle"""
-        parities_aux = []
-        parities_old = []
-        for block in blocks:
-            parity = self.calculate_parity_alice_indices(self.correct_key, block)
-            parities_aux.append((block[0], parity))
-            #block[0] is used to simulate the usage of two block indexes
-            parities_old.append((block[0], block[0], parities_old))
-
-        return parities_aux, parities_old
 
     def process_compute_parities_threading(self):
 
@@ -612,18 +625,6 @@ class Alice:
         for shuffle_index in range(shuffle_start_index, shuffle_end_index):
             key_index = shuffle_index_to_key_index_dictionary[shuffle_index]
             if key_param.get_bit(key_index):
-                parity = 1 - parity
-
-        return parity
-
-    @staticmethod
-    def calculate_parity_alice_indices(key_param, block_indices):
-        """Calculate the parity of a block given its indices"""
-        parity = 0
-
-        for idx in block_indices:
-            bit_value = key_param.get_bit(idx)
-            if bit_value:
                 parity = 1 - parity
 
         return parity
@@ -666,9 +667,6 @@ class AliceChannel(Alice):
         self.messages_received = []
         self.number_messages_received = 0
 
-        self.previous_messages_size = []
-        self.updated_messages_size = []
-
     def send_message_to_bob(self, data_to_send):
         #packet = OutboxPacket(1, data_to_send)
 
@@ -693,11 +691,11 @@ class AliceChannel(Alice):
                 #blocks_to_calculate_parity = self.receive_buffer.pop()
                 blocks_to_calculate_parity = self.receive_buffer.get()
 
-                #print(f"Received Block: {len(blocks_to_calculate_parity)}")
+                print(f"Received Block: {len(blocks_to_calculate_parity)}")
                 #print(f"Received Message: {blocks_to_calculate_parity}")
 
                 aux_payload = pickle.dumps((self.thread_id, blocks_to_calculate_parity)) # Performed just to see messages size
-                #print(f"Alice Received Message: {len(aux_payload)} | ThreadId: {self.thread_id}")
+                print(f"Alice Received Message: {len(aux_payload)} | ThreadId: {self.thread_id}")
 
                 #self.messages_received.append(("A", "R", self.number_messages_received, time.process_time(), len(aux_payload), 2, self.thread_id))
                 self.messages_received.append(
@@ -712,16 +710,10 @@ class AliceChannel(Alice):
                     #    self._process_privacy_amplification()
                     break
 
-                #parities_calculated = self.ask_parities_secure_optimized(blocks_to_calculate_parity)
-                #Old is made just to have the old values - In a realistic Implementation should be removed.
-                parities_calculated_updated, parities_calculated_old = self.ask_parities_secured_optimized_indices(blocks_to_calculate_parity)
+                parities_calculated = self.ask_parities_secure_optimized(blocks_to_calculate_parity)
 
-                #send_data = pickle.dumps((self.thread_id, parities_calculated))
-                send_data = pickle.dumps((self.thread_id, parities_calculated_updated))
-                previous_send_data = pickle.dumps((self.thread_id, parities_calculated_old))
-                self.updated_messages_size.append(len(send_data))
-                self.previous_messages_size.append(len(previous_send_data))
-                #print(f"Alice Sent Message to Bob {len(send_data)} | Thread Id: {self.thread_id}")
+                send_data = pickle.dumps((self.thread_id, parities_calculated))
+                print(f"Alice Sent Message to Bob {len(send_data)} | Thread Id: {self.thread_id}")
                 #print(f"data_to_send: {(self.thread_id, parities_calculated)}")
 
                 self.send_message_to_bob(send_data)

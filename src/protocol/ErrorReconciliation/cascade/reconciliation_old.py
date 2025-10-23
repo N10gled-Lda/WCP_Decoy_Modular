@@ -33,6 +33,68 @@ LEO_DELAY = 0.0427
 MEO_DELAY = 0.100
 
 
+def _format_key(noisy_key, correct_key, start_index=0):
+    """
+    Format the key for visual representation. Differences between the noisy and correct key are highlighted.
+    """
+    if correct_key is None:
+        return "Correct Key is not known"
+
+    formatted_key = ""
+    for index, bit in enumerate(noisy_key._bits.values()):
+        if bit == correct_key.get_bit(index + start_index):
+            # Green for correct bits
+            formatted_key += '\033[92m' + str(bit) + '\033[0m'
+        else:
+            # Red for incorrect bits
+            formatted_key += '\033[91m' + str(bit) + '\033[0m'
+    return formatted_key
+
+
+def _format_block_key(noisy_key_block, correct_key, start_index, end_index):
+    """
+        Format the key Block for visual representation. Differences between the noisy and correct key are highlighted.
+    """
+
+    if correct_key is None:
+        return "Correct Key is not known"
+
+    formatted_key = ""
+
+    noisy_key_indexes = noisy_key_block.get_key_indexes()
+
+    for index in noisy_key_indexes:
+        bit = noisy_key_block.get_key_bit(index)
+        if bit == correct_key.get_bit(index):
+            formatted_key += '\033[92m' + str(bit) + '\033[0m'
+        else:
+            formatted_key += '\033[91m' + str(bit) + '\033[0m'
+
+    return formatted_key
+
+
+def _format_block_key_wo_shuffle(noisy_key_block, correct_key, start_index, end_index, shuffle):
+    """
+        Format the key Block, considering Shuffling for visual representation - The Shuffling is unmade. Differences between the noisy and correct key are highlighted.
+    """
+    if correct_key is None:
+        return "Correct Key is not known"
+
+    formatted_key = ""
+
+    #noisy_key_indexes = noisy_key_block.get_key_indexes()
+
+
+    for index in range(start_index, end_index):
+        bit = noisy_key_block.get_key_bit(index)
+        if bit == correct_key.get_bit(index):
+            formatted_key += '\033[92m' + str(bit) + '\033[0m'
+        else:
+            formatted_key += '\033[91m' + str(bit) + '\033[0m'
+
+    return formatted_key
+
+
 
 class Reconciliation:
     """
@@ -50,15 +112,9 @@ class Reconciliation:
             algorithm_name (str): The name of the Cascade algorithm.
             classical_channel (subclass of ClassicalChannel): The classical channel over which
                 Bob communicates with Alice.
-            noisy_key (Key): The noisy key as Bob received it from Alice that needs to reconcile.
+            noisy_key (Key): The noisy key as Bob received it from Alice that needs to be
+                reconciliated.
             estimated_bit_error_rate (float): The estimated bit error rate in the noisy key.
-            aux_socket (Socket): socket for communication.
-            thread_id (int): Thread number to which the reconciliation belongs.
-            role (Role): Role object used for communication.
-            message_queue: Queue or similar object where messages are retrieved from. Useful when multi-threading.
-            bandwidth (int): Specifies the bandwidth limit for simulations purposes.
-            propagation_delay (int): Specifies the delay between each message for simulation. Based on Distance between
-                                     peers.
         """
 
         # Store the arguments.
@@ -71,6 +127,9 @@ class Reconciliation:
 
         # Map key indexes to blocks.
         self._key_index_to_blocks = {}
+
+        # USED FOR VISUALIZATION PURPOSES - SHOULD BE DELETED OR Change eventually
+        # self.aux_copy_correct_key = self._classical_channel._correct_key
 
         # Keep track of statistics.
         self.stats = Stats()
@@ -89,21 +148,38 @@ class Reconciliation:
 
         self.aux_ask_parity_bits_info = 0
 
+        #self.my_ip_address = "127.0.0.1"
+        #self.my_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        #self.my_port = 5001
+        # self.my_socket.bind((self.my_ip_address,self.my_port))
+        #self.connection = None
+
+        #self.alice_ip_address = "127.0.0.2"
+        #self.alice_port = 5002
+
+        #self.all_time_sleep = 0
         self.total_time = 0
         self.start_send = 0
         self.end_send = 0
 
         self.propagation_delay = propagation_delay
         self.bandwidth = bandwidth
+        #self.number_r = number_r
+        #self.number_runs = number_runs
+        #self.it_number = it_number
+        #self.it_n_total = it_n_total
+
         self.aux_socket = aux_socket
 
         self.largest_message_sent = (0, 0)
         self.largest_message_received = (0, 0)
 
+        #self.send_buffer = send_buffer
+        #self.receive_buffer = deque()
         self.receive_buffer = message_queue
 
         # Dictionary to save the block Objects based on Key: start index-end index, Value: Block
-        # This is performed to guarantee that the block is not lost while using threading, and when recieving correct parity of block to be able to change it
+        # This is performed to guarantee that the block is not lost while using threading, and when receving correct parity of block to be able to change it
         #self.block_dict = {}
         #self.block_dict_aux = {}
 
@@ -123,9 +199,23 @@ class Reconciliation:
         self.messages_received = []
         self.number_messages_received = 0
 
-        self.previous_messages_size_sent = []
-        self.optimized_messages_size_sent = []
+        # LOGGING
+        # Setup the logger
+        if __debug__:
+            if not os.path.exists("logs"):
+                os.makedirs("logs")
+            if not os.path.exists("log_files"):
+                os.makedirs("log_files")
+            self.logger = logging.getLogger(self.__class__.__name__)  # Use the class name as the logger name
+            self.logger.setLevel(logging.DEBUG)  # Set the minimum level for the logger.
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            file_handler = logging.FileHandler(f'logs/{self.__class__.__name__.lower()}_{timestamp}.log', mode='w')
+            file_handler.setLevel(logging.DEBUG)  # DEBUG and above will be written to the log file.
 
+            self.file_logging = open(f'log_files/{self.__class__.__name__.lower()}_visual_{timestamp}.txt', "w",
+                                     encoding='windows-1252')
+
+            self.logger.addHandler(file_handler)
 
     # Method added by PF 4:01 PM 11/27/2024 For Debugging purposes
     def __repr__(self):
@@ -173,10 +263,8 @@ class Reconciliation:
 
     def reconcile(self):
         """
-        Run the Cascade algorithm to reconciliate ("Bob's") noisy key with the server's
+        Run the Cascade algorithm to reconciliate our ("Bob's") noisy key with the server's
         ("Alice's") correct key.
-
-        This method does not use communication over Internet connection.
 
         Returns:
             The reconciled key. There is still a small but non-zero chance that the corrected key
@@ -186,6 +274,15 @@ class Reconciliation:
         # Start measuring process and real time.
         start_process_time = time.process_time()
         start_real_time = time.perf_counter()
+
+        if __debug__:
+            self.print_message("Correct key (Alice):     " + _format_key(self._classical_channel._correct_key,
+                                                                         self._classical_channel._correct_key))
+            self.print_message(
+                "Initial noisy key (Bob): " + _format_key(self._noisy_key, self._classical_channel._correct_key))
+
+        # print("Correct key (Alice):     " + _format_key(self._classical_channel._correct_key, self._classical_channel._correct_key), file=self.file_logging)
+        # print("Initial noisy key (Bob): " + _format_key(self._noisy_key, self._classical_channel._correct_key), file=self.file_logging)
 
         # Make a deep copy of the key, so that we continue to have access to the original noisy key.
         self._reconciled_key = copy.deepcopy(self._noisy_key)
@@ -206,6 +303,7 @@ class Reconciliation:
 
         # Compute elapsed time.
         self.stats.elapsed_process_time = time.process_time() - start_process_time
+        #self.stats.elapsed_real_time = time.perf_counter() - start_real_time
         self.stats.elapsed_real_time = end_real_time_aux - start_real_time_aux
 
         # Compute efficiencies.
@@ -219,16 +317,27 @@ class Reconciliation:
         #print(self.stats.start_iterations_bits)
 
         realistic_reconciliation_bits = self.aux_ask_parity_bits_info + self.stats.reply_parity_bits + self.stats.start_iterations_bits
+        # realistic_reconciliation_bits = self.stats.ask_parity_bits + self.stats.reply_parity_bits + self.stats.start_iterations_bits
 
+        #print(f"ask parity blocks: {self.stats.ask_parity_blocks} \n {realistic_reconciliation_bits}")
+        # realistic_reconciliation_bits /= self.stats.ask_parity_blocks
         self.stats.realistic_efficiency = self._compute_efficiency(realistic_reconciliation_bits)
+        #print(f"recon_bits: {realistic_reconciliation_bits}")
 
-        # Return reconciled key after correction algorithm.
+        # Return the probably, but not surely, corrected key.
+        if __debug__:
+            self.print_message("Correct key (Alice):     " + _format_key(self._classical_channel._correct_key,
+                                                                         self._classical_channel._correct_key))
+            self.print_message(
+                "Final noisy key (Bob):   " + _format_key(self._reconciled_key, self._classical_channel._correct_key))
+            # print("Correct key (Alice):     " + _format_key(self._classical_channel._correct_key,
+            #                                            self._classical_channel._correct_key), file=self.file_logging)
+            # print("Final noisy key (Bob):   " + _format_key(self._reconciled_key, self._classical_channel._correct_key),
+            #    file=self.file_logging)
+
         return self._reconciled_key
 
     def end_communication_channel(self):
-        """
-        Deprecated.
-        """
         init_pack = b"begin_ask"
 
         end_pack = b"end_ask"
@@ -237,9 +346,6 @@ class Reconciliation:
         self.aux_socket.sendall(end_pack)
 
     def end_reconcile(self):
-        """
-        Deprecated.
-        """
         init_pack = b"begin_ask"
 
         end_pack = b"end_ask"
@@ -252,8 +358,6 @@ class Reconciliation:
         Run the Cascade algorithm to reconciliate our ("Bob's") noisy key with the server's
         ("Alice's") correct key.
 
-        This method uses the self.aux_socket Connection to exchange of information.
-
         Returns:
             The reconciled key. There is still a small but non-zero chance that the corrected key
             still contains errors.
@@ -262,6 +366,12 @@ class Reconciliation:
         # Start measuring process and real time.
         start_process_time = time.process_time()
         start_real_time = time.perf_counter()
+
+        if __debug__:
+            self.print_message("Correct key (Alice):     " + _format_key(self._classical_channel._correct_key,
+                                                                         self._classical_channel._correct_key))
+            self.print_message(
+                "Initial noisy key (Bob): " + _format_key(self._noisy_key, self._classical_channel._correct_key))
 
         # print("Correct key (Alice):     " + _format_key(self._classical_channel._correct_key, self._classical_channel._correct_key), file=self.file_logging)
         # print("Initial noisy key (Bob): " + _format_key(self._noisy_key, self._classical_channel._correct_key), file=self.file_logging)
@@ -308,6 +418,11 @@ class Reconciliation:
         print(f"recon_bits: {realistic_reconciliation_bits}")
 
         # Return the probably, but not surely, corrected key.
+        if __debug__:
+            self.print_message("Correct key (Alice):     " + _format_key(self._classical_channel._correct_key,
+                                                                         self._classical_channel._correct_key))
+            self.print_message(
+                "Final noisy key (Bob):   " + _format_key(self._reconciled_key, self._classical_channel._correct_key))
 
         self.stats.n_chunks_per_message /= self.stats.ask_parity_messages
         self.stats.n_chunks_per_message_received /= self.stats.ask_parity_messages
@@ -336,9 +451,6 @@ class Reconciliation:
         Run the Cascade algorithm to reconciliate our ("Bob's") noisy key with the server's
         ("Alice's") correct key.
 
-        This method uses the Role object to exchange messages and is usable for multi-threading implementation.
-        Multi-threading implementations include the "thread_id" when sending messages.
-
         Returns:
             The reconciled key. There is still a small but non-zero chance that the corrected key
             still contains errors.
@@ -347,6 +459,17 @@ class Reconciliation:
         # Start measuring process and real time.
         start_process_time = time.process_time()
         start_real_time = time.perf_counter()
+
+        if __debug__:
+            try:
+                self.print_message("Correct key (Alice):     " + _format_key(self._classical_channel._correct_key,
+                                                                             self._classical_channel._correct_key))
+                self.print_message(
+                    "Initial noisy key (Bob): " + _format_key(self._noisy_key, self._classical_channel._correct_key))
+            except AttributeError:
+                #In Case Classical Channel is None continue without logging - Performed this way to reuse in case of logging implementation
+                pass
+
 
         self.propagation_delay = propagation_delay
         self.bandwidth = bandwidth
@@ -392,6 +515,15 @@ class Reconciliation:
         #print(f"recon_bits: {realistic_reconciliation_bits}")
 
         # Return the probably, but not surely, corrected key.
+        if __debug__:
+            try:
+                self.print_message("Correct key (Alice):     " + _format_key(self._classical_channel._correct_key,
+                                                                             self._classical_channel._correct_key))
+                self.print_message(
+                    "Final noisy key (Bob):   " + _format_key(self._reconciled_key, self._classical_channel._correct_key))
+            except AttributeError:
+                #In Case Classical Channel is None continue without logging - Performed this way to reuse in case of logging implementation
+                pass
 
         self.stats.n_chunks_per_message /= self.stats.ask_parity_messages
         self.stats.n_chunks_per_message_received /= self.stats.ask_parity_messages
@@ -415,7 +547,7 @@ class Reconciliation:
         return self._reconciled_key
 
     def end_reconcile_message(self):
-        """Finishes the Reconciliation process for a thread."""
+
         data_to_send = (self.thread_id, "end_reconciliation")
 
         package_data = pickle.dumps(data_to_send)
@@ -442,6 +574,8 @@ class Reconciliation:
     def _get_blocks_containing_key_index(self, key_index: int):
         return self._key_index_to_blocks.get(key_index, [])
 
+    def print_message(self, message: str, end: str="\n"):
+        print(message, end=end, file=self.file_logging)
 
     def _correct_parity_is_known_or_can_be_inferred(self, block: Block):
 
@@ -463,6 +597,8 @@ class Reconciliation:
         else:
             sibling_block = parent_block.get_left_sub_block()
         if sibling_block is None:
+            if __debug__:
+                self.print_message("Cannot infer if there is no sibling block (yet)")
             return False
 
         # Cannot infer if the correct parity of the parent or sibling block are unknown.
@@ -479,6 +615,11 @@ class Reconciliation:
         else:
             correct_block_parity = correct_sibling_parity
 
+        if __debug__:
+            self.print_message(
+                f"We have everything we need to Infer the correct parity. Parent Correct Parity: {CYAN}{correct_parent_parity}{RESET} "
+                f"| Sibling Correct Parity: {CYAN}{correct_sibling_parity}{RESET} => Hence this block Correct parity is {CYAN}{correct_block_parity}{RESET}")
+
         block.set_correct_parity(correct_block_parity)
         self.stats.infer_parity_blocks += 1
         return True
@@ -487,6 +628,7 @@ class Reconciliation:
         # Adding an item to the end (not the start!) of a list is an efficient O(1) operation.
         entry = (block, correct_right_sibling)
         self._pending_ask_correct_parity.append(entry)
+
 
     @staticmethod
     def _produce_key_string(start_index: int, end_index: int):
@@ -497,13 +639,13 @@ class Reconciliation:
 
     @staticmethod
     def _bits_in_int(int_value: int):
-        """bits = 0
+        '''bits = 0
         while int_value != 0:
             bits += 1
             int_value //= 2
         if bits == 0:
             bits = 1
-        return bits"""
+        return bits'''
         # Changed by PF 2:42 PM 12/2/2024
         if int_value == 0:
             return 1
@@ -542,6 +684,12 @@ class Reconciliation:
         ask_parity_blocks = []
         ask_parity_blocks_secure_optimized = []
         # print(f"--------------------------------\nMessage: {self.stats.ask_parity_messages}")
+        if __debug__:
+            self.logger.debug(f"--------------------------------\nMessage: {self.stats.ask_parity_messages}")
+            self.print_message(f"--------------------------------\n{YELLOW}Message SENDING: {self.stats.ask_parity_messages}{RESET}")
+            log_aux_parity_bits_message = self.stats.ask_parity_bits
+            log_aux_number_block = 0
+            log_aux_ask_parity_bits_info = self.aux_ask_parity_bits_info
 
         for entry in self._pending_ask_correct_parity:
             (block, _correct_right_sibling) = entry
@@ -569,13 +717,34 @@ class Reconciliation:
             # Bits inside a block include: iteration nr | Start Index | End Index
             self.aux_ask_parity_bits_info += 2 + 18 + 18
 
+            if __debug__:
+                try:
+                    self.logger.debug(f"------------\n{repr(block)}\n{str(block)}\nBlock Nr: {log_aux_number_block}")
+                    self.print_message(f"------------\n{repr(block)}\n{str(block)}\n{_format_block_key(block, self._classical_channel._correct_key, block.get_start_index(), block.get_end_index())}\n{_format_block_key_wo_shuffle(block, self._classical_channel._correct_key, block.get_start_index(), block.get_end_index(), block.get_shuffle())}\n{BLUE}Block Nr{RESET}: {log_aux_number_block} | Indexes {YELLOW}{block_start_index}{RESET}:{YELLOW}{block_end_index}{RESET} | Current Parity: {CYAN}{block.get_current_parity()}{RESET}")
+                except AttributeError:
+                    # In Case Classical Channel is None continue without logging - Performed this way to reuse in case of logging implementation
+                    pass
 
             aux = self.stats.ask_parity_bits
+            if __debug__:
+                self.logger.debug(
+                    f"Block Shuffle Identifier: {block.get_shuffle().get_identifier()} ; Identifier Bits: {block.get_shuffle().get_identifier().bit_length()}\nBlock Start Index: {block.get_start_index()} ; Index Bits: {a}\n Block End Index: {block.get_end_index()} ; Index Bits: {b}\n")
 
             # This is made since we do not send the identifier anymore
             self.stats.ask_parity_bits += self._bits_in_block_ask_parity(block)
             # self.stats.ask_parity_bits += 2 + 18 + 18
 
+            if __debug__:
+                log_aux_number_block += 1
+                # print(f"Bits in Block: {self.stats.ask_parity_bits - aux} ; Total Ask Parity Bits: {self.stats.ask_parity_bits}\n------------")
+                self.logger.debug(
+                    f"Bits in Block: {self.stats.ask_parity_bits - aux} ; Total Ask Parity Bits: {self.stats.ask_parity_bits} ; New Bits in Block: {a + b} ; "
+                    f"Total New Ask Parity Bits: {self.aux_ask_parity_bits_info}\n------------")
+
+                log_aux_parity_bits_message = self.stats.ask_parity_bits - log_aux_parity_bits_message
+                # print(f"This Message Contains Number of Blocks: {log_aux_number_block} ; Total Bits send in this Message: {log_aux_parity_bits_message}\n--------------------------------")
+                self.logger.debug(
+                    f"This Message Contains Number of Blocks: {log_aux_number_block} ; Total Bits send in this Message: {log_aux_parity_bits_message} ; Total NEW Bits send in this Message: {self.aux_ask_parity_bits_info - log_aux_ask_parity_bits_info}\n--------------------------------")
 
         # "Send a message" to Alice to ask her to compute the correct parities for the list that
         # we prepared. For now, this is a synchronous blocking operations (i.e. we block here
@@ -590,6 +759,9 @@ class Reconciliation:
         #print(len(correct_parities))
         #print(len(self._pending_ask_correct_parity))
 
+        if __debug__:
+            self.print_message(f"--------------------------------\n{YELLOW}Message RECEIVED: {self.stats.ask_parity_messages}{RESET}")
+
         # Process the answer from Alice. IMPORTANT: Alice is required to send the list of parities
         # in the exact same order as the ranges in the question; this allows us to zip.
         for (response_array, entry) in zip(correct_parities, self._pending_ask_correct_parity):
@@ -599,11 +771,20 @@ class Reconciliation:
             #print(f"{start_idx}:{end_idx}")
             #print(block)
             block.set_correct_parity(correct_parity)
+            if __debug__:
+                try:
+                    self.print_message(
+                        f"------------\n{repr(block)}\n{str(block)}\n{_format_block_key(block, self._classical_channel._correct_key, block.get_start_index(), block.get_end_index())}\n{_format_block_key_wo_shuffle(block, self._classical_channel._correct_key, block.get_start_index(), block.get_end_index(), block.get_shuffle())}\n{BLUE}Block Nr{RESET}: {log_aux_number_block} | Indexes {YELLOW}{start_idx}{RESET}:{YELLOW}{end_idx}{RESET} | Current Parity: {CYAN}{block.get_current_parity()}{RESET} | Correct Parity: {CYAN}{block.get_correct_parity()}{RESET}")
+                except AttributeError:
+                    # In Case Classical Channel is None continue without logging - Performed this way to reuse in case of logging implementation
+                    pass
 
             self._schedule_try_correct(block, correct_right_sibling)
 
         # Clear the list of pending questions.
         self._pending_ask_correct_parity = []
+
+
 
     def _service_pending_ask_correct_parity(self):
 
@@ -615,11 +796,18 @@ class Reconciliation:
         # VER EFICIENCIA DESTA PARTE TALVEZ SEJA POSSIVEL NAO NECESSITAR DESTE CICLO FOR  POIS COMPLEXIDADE O(N) para apenas colocar os blocks numa variavel auxiliar podendo a utilidade sendo mais para estatisticas
         ask_parity_blocks = []
         # print(f"--------------------------------\nMessage: {self.stats.ask_parity_messages}")
+        if __debug__:
+            self.logger.debug(f"--------------------------------\nMessage: {self.stats.ask_parity_messages}")
+            log_aux_parity_bits_message = self.stats.ask_parity_bits
+            log_aux_number_block = 0
+            log_aux_ask_parity_bits_info = self.aux_ask_parity_bits_info
 
         for entry in self._pending_ask_correct_parity:
             (block, _correct_right_sibling) = entry
 
             # print(f"------------\n{repr(block)}\n{str(block)}\nBlock Nr: {log_aux_number_block}")
+            if __debug__:
+                self.logger.debug(f"------------\n{repr(block)}\n{str(block)}\nBlock Nr: {log_aux_number_block}")
 
             ask_parity_blocks.append(block)
 
@@ -632,11 +820,25 @@ class Reconciliation:
             self.aux_ask_parity_bits_info += 2 + 18 + 18
 
             aux = self.stats.ask_parity_bits
+            if __debug__:
+                self.logger.debug(
+                    f"Block Shuffle Identifier: {block.get_shuffle().get_identifier()} ; Identifier Bits: {block.get_shuffle().get_identifier().bit_length()}\nBlock Start Index: {block.get_start_index()} ; Index Bits: {a}\n Block End Index: {block.get_end_index()} ; Index Bits: {b}\n")
 
             # This is made since we do not send the identifier anymore
             self.stats.ask_parity_bits += self._bits_in_block_ask_parity(block)
             # self.stats.ask_parity_bits += 2 + 18 + 18
 
+            if __debug__:
+                log_aux_number_block += 1
+                # print(f"Bits in Block: {self.stats.ask_parity_bits - aux} ; Total Ask Parity Bits: {self.stats.ask_parity_bits}\n------------")
+                self.logger.debug(
+                    f"Bits in Block: {self.stats.ask_parity_bits - aux} ; Total Ask Parity Bits: {self.stats.ask_parity_bits} ; New Bits in Block: {a + b} ; "
+                    f"Total New Ask Parity Bits: {self.aux_ask_parity_bits_info}\n------------")
+
+                log_aux_parity_bits_message = self.stats.ask_parity_bits - log_aux_parity_bits_message
+                # print(f"This Message Contains Number of Blocks: {log_aux_number_block} ; Total Bits send in this Message: {log_aux_parity_bits_message}\n--------------------------------")
+                self.logger.debug(
+                    f"This Message Contains Number of Blocks: {log_aux_number_block} ; Total Bits send in this Message: {log_aux_parity_bits_message} ; Total NEW Bits send in this Message: {self.aux_ask_parity_bits_info - log_aux_ask_parity_bits_info}\n--------------------------------")
 
         # "Send a message" to Alice to ask her to compute the correct parities for the list that
         # we prepared. For now, this is a synchronous blocking operations (i.e. we block here
@@ -678,12 +880,16 @@ class Reconciliation:
 
                 if b"begin_reply" in chunk_mss:
                     in_message = True
+                    if __debug__:
+                        print("Initializing Receiving Reply")
                     start_time = time.perf_counter()
 
                     chunk_mss = chunk_mss.split(b"begin_reply", 1)[1]
 
                 if b"end_reply" in chunk_mss:
                     in_message = False
+                    if __debug__:
+                        print("Ending Receiving Reply")
                     end_time = time.perf_counter()
                     chunk_mss, _ = chunk_mss.split(b"end_reply", 1)
                     data_mss += chunk_mss
@@ -693,12 +899,17 @@ class Reconciliation:
                     data_mss += chunk_mss
                     n_chunks += 1
                     self.stats.total_n_chunks_received += 1
+                    if __debug__:
+                        print("received_chunk")
 
 
         except socket.timeout:
             print("Timeout reached, no data received")
 
         if start_time != 0:
+            if __debug__:
+                print(
+                    f"total time sleep receiving message: Start: {start_time} | End: {end_time} | Time in seconds {(end_time - start_time) + self.propagation_delay} seconds")
             # time.sleep((end_time - start_time) * 1.238)
             aux = (end_time - start_time) + self.propagation_delay
 
@@ -733,12 +944,18 @@ class Reconciliation:
 
             # Throttle if the bandwidth limit is exceeded
             if bytes_sent / elapsed_time > self.bandwidth:
+                if __debug__:
+                    # print(f"Bob Bandwidth Limit Sleeping for: {(bytes_sent / self.bandwidth) - elapsed_time}")
+                    pass
+
                 # time.sleep((bytes_sent / self.bandwidth) - elapsed_time)
                 # self._simulate_time_passing((bytes_sent / self.bandwidth) - elapsed_time)
                 time_to_sleep += (bytes_sent / self.bandwidth) - elapsed_time
 
         end_time = time.perf_counter()
 
+        if __debug__:
+            print(f"Chunk Counter (This gives number of chunks in this message: {chunk_counter}")
         total_time_message = (end_time - start_time) + self.propagation_delay
         total_time_message_aux = (len(data) / self.bandwidth) + self.propagation_delay
 
@@ -777,11 +994,19 @@ class Reconciliation:
         ask_parity_blocks_secure_optimized = []
 
         # print(f"--------------------------------\nMessage: {self.stats.ask_parity_messages}")
+        if __debug__:
+            self.logger.debug(f"--------------------------------\nMessage: {self.stats.ask_parity_messages}")
+            log_aux_parity_bits_message = self.stats.ask_parity_bits
+            log_aux_number_block = 0
+            log_aux_ask_parity_bits_info = self.aux_ask_parity_bits_info
 
         for entry in self._pending_ask_correct_parity:
             (block, _correct_right_sibling) = entry
 
             # print(f"------------\n{repr(block)}\n{str(block)}\nBlock Nr: {log_aux_number_block}")
+            if __debug__:
+                self.logger.debug(f"------------\n{repr(block)}\n{str(block)}\nBlock Nr: {log_aux_number_block}")
+
             block_start_index = block.get_start_index()
             block_end_index = block.get_end_index()
             block_shuffle_object = block.get_shuffle()
@@ -799,6 +1024,22 @@ class Reconciliation:
             self.aux_ask_parity_bits_info += 2 + 18 + 18
 
             aux = self.stats.ask_parity_bits
+            if __debug__:
+                a = block.get_start_index().bit_length()
+                b = block.get_end_index().bit_length()
+                self.logger.debug(
+                    f"Block Shuffle Identifier: {block.get_shuffle().get_identifier()} ; Identifier Bits: {block.get_shuffle().get_identifier().bit_length()}\nBlock Start Index: {block.get_start_index()} ; Index Bits: {a}\n Block End Index: {block.get_end_index()} ; Index Bits: {b}\n")
+
+                log_aux_number_block += 1
+                # print(f"Bits in Block: {self.stats.ask_parity_bits - aux} ; Total Ask Parity Bits: {self.stats.ask_parity_bits}\n------------")
+                self.logger.debug(
+                    f"Bits in Block: {self.stats.ask_parity_bits - aux} ; Total Ask Parity Bits: {self.stats.ask_parity_bits} ; New Bits in Block: {a + b} ; "
+                    f"Total New Ask Parity Bits: {self.aux_ask_parity_bits_info}\n------------")
+
+                log_aux_parity_bits_message = self.stats.ask_parity_bits - log_aux_parity_bits_message
+                # print(f"This Message Contains Number of Blocks: {log_aux_number_block} ; Total Bits send in this Message: {log_aux_parity_bits_message}\n--------------------------------")
+                self.logger.debug(
+                    f"This Message Contains Number of Blocks: {log_aux_number_block} ; Total Bits send in this Message: {log_aux_parity_bits_message} ; Total NEW Bits send in this Message: {self.aux_ask_parity_bits_info - log_aux_ask_parity_bits_info}\n--------------------------------")
 
         # "Send a message" to Alice to ask her to compute the correct parities for the list that
         # we prepared. For now, this is a synchronous blocking operations (i.e. we block here
@@ -814,6 +1055,13 @@ class Reconciliation:
         self.stats.ask_parity_bytes += len(package_data)
         # Calculated by n_chunks in a set of blocks, and then divide by number of messages -> Confirmation value is correct by total_n_chunks/number of messages
         self.stats.n_chunks_per_message += (len(package_data) / 4096)
+
+        if __debug__:
+            print(f"Stats N Chunks Per Message: {self.stats.n_chunks_per_message}")
+            print(f"Stats Ask Parity Blocks: {self.stats.ask_parity_blocks}")
+            print(f"Number of Parity Blocks (Len(Parity Blocks)): {len(ask_parity_blocks_secure_optimized)}")
+            print(f"N Chunks Per Block: {(len(package_data) / 4096) / len(ask_parity_blocks_secure_optimized)}")
+            print(f"Ask Parity Blocks Going to Send... {len(package_data)} Bytes")
 
         if (len(package_data) * 8) > self.largest_message_sent[0]:
             self.largest_message_sent = (len(package_data) * 8, self.stats.ask_parity_messages)
@@ -832,6 +1080,10 @@ class Reconciliation:
         # Adding the Time to Send message
         self.stats.total_time_to_send_message += (len(package_data) / self.bandwidth) + self.propagation_delay
 
+        if __debug__:
+            print(f"All Parity Blocks Sent: {len(package_data)}")
+            print(f"Waiting for Alice Response...")
+
         package_received, to_tim = self._receive_message_from_alice()
 
         self.stats.reply_parity_bytes += len(package_received)
@@ -839,9 +1091,16 @@ class Reconciliation:
         if (len(package_received) * 8) > self.largest_message_received[0]:
             self.largest_message_received = (len(package_received) * 8, self.stats.ask_parity_messages)
 
+        if __debug__:
+            print(f"time to receive Reply: {to_tim - self.propagation_delay}")
+            print(f"Total Time CORRECT (time receiving message + DELAY): {to_tim}")
+
         self.total_time += self.propagation_delay
 
         correct_parities = pickle.loads(package_received)
+
+        if __debug__:
+            print(f"Correct parities Received: {correct_parities[:10]}")
 
         # Process the answer from Alice. IMPORTANT: Alice is required to send the list of parities
         # in the exact same order as the ranges in the question; this allows us to zip.
@@ -856,8 +1115,11 @@ class Reconciliation:
         # Clear the list of pending questions.
         self._pending_ask_correct_parity = []
 
+
     def _service_pending_ask_correct_parity_channel_threading(self):
 
+        if __debug__:
+            print(f"Service_pending_ask_correct_parity_channel_threading Thread Id: {self.thread_id}")
 
         if not self._pending_ask_correct_parity:
             return
@@ -866,9 +1128,13 @@ class Reconciliation:
         # to compute the correct parity.
         # This is performed to not pass any objects Between Bob and Alice
         ask_parity_blocks_secure_optimized = []
-        ask_parity_blocks_secure_optimized_indexes = []
 
         # print(f"--------------------------------\nMessage: {self.stats.ask_parity_messages}")
+        if __debug__:
+            self.logger.debug(f"--------------------------------\nMessage: {self.stats.ask_parity_messages}")
+            log_aux_parity_bits_message = self.stats.ask_parity_bits
+            log_aux_number_block = 0
+            log_aux_ask_parity_bits_info = self.aux_ask_parity_bits_info
 
         for entry in self._pending_ask_correct_parity:
             (block, _correct_right_sibling) = entry
@@ -881,16 +1147,30 @@ class Reconciliation:
 
             block_secure_obj_opt = (block_start_index, block_end_index, shuffle_index_to_key_index_dict)
 
-            # This is used for the indexes implementation
-            block_secure_obj_opt_indexes = tuple(block_shuffle_object.get_key_index(idx) for idx in range(block_start_index, block_end_index))
-
             ask_parity_blocks_secure_optimized.append(block_secure_obj_opt)
-            ask_parity_blocks_secure_optimized_indexes.append(block_secure_obj_opt_indexes)
 
             # Bits inside a block include: iteration nr | Start Index | End Index
             self.aux_ask_parity_bits_info += 2 + 18 + 18
 
             aux = self.stats.ask_parity_bits
+            if __debug__:
+                self.logger.debug(f"------------\n{repr(block)}\n{str(block)}\nBlock Nr: {log_aux_number_block}")
+
+                a = block.get_start_index().bit_length()
+                b = block.get_end_index().bit_length()
+                self.logger.debug(
+                    f"Block Shuffle Identifier: {block.get_shuffle().get_identifier()} ; Identifier Bits: {block.get_shuffle().get_identifier().bit_length()}\nBlock Start Index: {block.get_start_index()} ; Index Bits: {a}\n Block End Index: {block.get_end_index()} ; Index Bits: {b}\n")
+
+                log_aux_number_block += 1
+                # print(f"Bits in Block: {self.stats.ask_parity_bits - aux} ; Total Ask Parity Bits: {self.stats.ask_parity_bits}\n------------")
+                self.logger.debug(
+                    f"Bits in Block: {self.stats.ask_parity_bits - aux} ; Total Ask Parity Bits: {self.stats.ask_parity_bits} ; New Bits in Block: {a + b} ; "
+                    f"Total New Ask Parity Bits: {self.aux_ask_parity_bits_info}\n------------")
+
+                log_aux_parity_bits_message = self.stats.ask_parity_bits - log_aux_parity_bits_message
+                # print(f"This Message Contains Number of Blocks: {log_aux_number_block} ; Total Bits send in this Message: {log_aux_parity_bits_message}\n--------------------------------")
+                self.logger.debug(
+                    f"This Message Contains Number of Blocks: {log_aux_number_block} ; Total Bits send in this Message: {log_aux_parity_bits_message} ; Total NEW Bits send in this Message: {self.aux_ask_parity_bits_info - log_aux_ask_parity_bits_info}\n--------------------------------")
 
         # "Send a message" to Alice to ask her to compute the correct parities for the list that
         # we prepared. For now, this is a synchronous blocking operations (i.e. we block here
@@ -900,12 +1180,8 @@ class Reconciliation:
 
         # Threading we need to send the Thread id
         data_to_send = (self.thread_id, ask_parity_blocks_secure_optimized)
-        data_to_send_indexes = (self.thread_id, ask_parity_blocks_secure_optimized_indexes)
 
         package_data = pickle.dumps(data_to_send)
-        self.previous_messages_size_sent.append(len(package_data))
-        package_data_indexes = pickle.dumps(data_to_send_indexes)
-        self.optimized_messages_size_sent.append(len(package_data_indexes))
 
         #self.send_buffer.appendleft(package_data)
 
@@ -916,17 +1192,11 @@ class Reconciliation:
         #print(f"RECONCILIATION OUTBOX SIZE: {self.role._outbox.qsize()}")
 
         # Measuring Time Sleep waiting for messages
-        #self.role.put_in_outbox(package_data)
-        self.role.put_in_outbox(package_data_indexes)
+        self.role.put_in_outbox(package_data)
         #self.messages_sent.append(("B", "S", self.number_messages_sent, time.process_time(), len(package_data), 1, self.thread_id))
-        #self.messages_sent.append(
-        #    ("B", "S", self.number_messages_sent, time.perf_counter(), len(package_data), 1, self.thread_id))
         self.messages_sent.append(
-            ("B", "S", self.number_messages_sent, time.perf_counter(), len(package_data_indexes), 1, self.thread_id))
-
+            ("B", "S", self.number_messages_sent, time.perf_counter(), len(package_data), 1, self.thread_id))
         self.number_messages_sent += 1
-
-
 
         start_counting = time.perf_counter()
         message_received = self.receive_buffer.get()
@@ -945,6 +1215,17 @@ class Reconciliation:
         # Calculated by n_chunks in a set of blocks, and then divide by number of messages -> Confirmation value is correct by total_n_chunks/number of messages
         self.stats.n_chunks_per_message += (len(package_data) / 4096)
 
+        if __debug__:
+            print(
+                f"Message Added to Buffer Thread ID: {data_to_send[0]} | Len Data ask_parity_blocks_secure_optimized: {len(data_to_send[1])}")
+            print(f"Stats N Chunks Per Message: {self.stats.n_chunks_per_message}")
+            print(f"Stats Ask Parity Blocks: {self.stats.ask_parity_blocks}")
+            print(f"Number of Parity Blocks (Len(Parity Blocks)): {len(ask_parity_blocks_secure_optimized)}")
+            print(f"N Chunks Per Block: {(len(package_data) / 4096) / len(ask_parity_blocks_secure_optimized)}")
+            print(f"Ask Parity Blocks Going to Send... {len(package_data)} Bytes")
+            print(f"Receive Buffer Length: {self.receive_buffer.qsize()}") # Changed from len(self.receive_buffer) to self.receive_buffer.qsize() since Queue has no Len method
+            print(f"Pending Ask Correct Parity: {len(self._pending_ask_correct_parity)}")
+            print(f"Pending Try Correct: {len(self._pending_try_correct)}")
 
         if (len(package_data) * 8) > self.largest_message_sent[0]:
             self.largest_message_sent = (len(package_data) * 8, self.stats.ask_parity_messages)
@@ -954,6 +1235,15 @@ class Reconciliation:
         #    pass
         #print(f"Received Response: ThreadId: {self.thread_id}")
         #message_received = self.receive_buffer.pop()
+
+
+
+        if __debug__:
+            print(f"Message Received Thread Id: {self.thread_id}")
+            print(f"All Parity Blocks Sent: {len(package_data)}")
+            print(f"Waiting for Alice Response...")
+            print(f"Correct parities Received: {message_received[:10]}")
+
         # package_received, to_tim = self._receive_message_from_alice()
 
         # self.stats.reply_parity_bytes += len(package_received)
@@ -982,8 +1272,7 @@ class Reconciliation:
         for (response_array, entry) in zip(message_received, self._pending_ask_correct_parity):
             self.stats.reply_parity_bits += 1
             (block, correct_right_sibling) = entry
-            #start_idx, end_idx, correct_parity = response_array
-            _, correct_parity = response_array
+            start_idx, end_idx, correct_parity = response_array
             block.set_correct_parity(correct_parity)
             self._schedule_try_correct(block, correct_right_sibling)
 
@@ -1018,6 +1307,8 @@ class Reconciliation:
             key_size = self._noisy_key.get_size()
 
             ratio_information = 1 - (reconciliation_bits / key_size)
+            if __debug__:
+                print(f"ratio_information: {ratio_information}")
 
             # efficiency = reconciliation_bits / (key_size * shannon_efficiency)
             efficiency = (1 - ratio_information) / shannon_efficiency
@@ -1028,7 +1319,6 @@ class Reconciliation:
     def _all_normal_cascade_iterations(self):
         for iteration_nr in range(1, self._algorithm.cascade_iterations + 1):
             # Iteration bits for initial message with iteration and seed
-            print(f"Iteration: {iteration_nr}")
             self._one_normal_cascade_iteration(iteration_nr)
 
     def _all_normal_cascade_iterations_channel(self):
@@ -1043,11 +1333,16 @@ class Reconciliation:
             # Same as before mas for threading implementation
             self._one_normal_cascade_iteration_channel_threading(iteration_nr)
 
+        if __debug__:
+            print(f"Thread Id: {self.thread_id} Finished All Cascade Processes")
+
         self.stats.estimated_corrected_bits += self.errors_corrected
         self.stats.corrected_bits_error_iteration.append(self.errors_corrected)
 
     def _one_normal_cascade_iteration(self, iteration_nr: int):
 
+        if __debug__:
+            self.print_message(f"{YELLOW}STARTING NORMAL ITERATION NR: {iteration_nr}{RESET}")
 
         self.stats.normal_iterations += 1
 
@@ -1056,6 +1351,10 @@ class Reconciliation:
         block_size = self._algorithm.block_size_function(self._estimated_bit_error_rate,
                                                          self._reconciled_key.get_size(),
                                                          iteration_nr)
+        if __debug__:
+            self.logger.debug(
+                f"--------\nITERATION: {self.stats.normal_iterations}\n BLOCK SIZE: {block_size}\n---------------------------")
+            self.print_message(f"BLOCK SIZE: {block_size}")
 
         # In the first iteration, we don't shuffle the key. In all subsequent iterations we
         # shuffle the key, using a different random shuffling in each iteration.
@@ -1092,6 +1391,9 @@ class Reconciliation:
         block_size = self._algorithm.block_size_function(self._estimated_bit_error_rate,
                                                          self._reconciled_key.get_size(),
                                                          iteration_nr)
+        if __debug__:
+            self.logger.debug(
+                f"--------\nITERATION: {self.stats.normal_iterations}\n BLOCK SIZE: {block_size}\n---------------------------")
 
         # In the first iteration, we don't shuffle the key. In all subsequent iterations we
         # shuffle the key, using a different random shuffling in each iteration.
@@ -1128,7 +1430,14 @@ class Reconciliation:
         block_size = self._algorithm.block_size_function(self._estimated_bit_error_rate,
                                                          self._reconciled_key.get_size(),
                                                          iteration_nr)
+        if __debug__:
+            self.logger.debug(
+                f"--------\nITERATION: {self.stats.normal_iterations}\n BLOCK SIZE: {block_size}\n---------------------------")
 
+        if __debug__:
+            print(
+                f"--------\nITERATION: {self.stats.normal_iterations}\n BLOCK SIZE: {block_size} THREAD ID: {self.thread_id}\n---------------------------\n")
+        # print(f"Len OF Send Buffer: {len(self.send_buffer)}")
 
         # In the first iteration, we don't shuffle the key. In all subsequent iterations we
         # shuffle the key, using a different random shuffling in each iteration.
@@ -1276,12 +1585,43 @@ class Reconciliation:
 
     def _try_correct(self, block: Block, correct_right_sibling: bool, cascade: bool):
 
+        if __debug__:
+            """
+            print(
+                f"\nBlock try to correct | Start Index: {block.get_start_index()} | End Index: {block.get_end_index()}"
+                f" | Left Sub Block: {block.get_left_sub_block()} | "
+                f"Right Sub Block: {block.get_right_sub_block()} | Current Parity: {block.get_current_parity()} | "
+                f"Correct Parity: {block.get_correct_parity()}: {_format_block_key(block, self._classical_channel._correct_key, block.get_start_index(), block.get_end_index())}",
+                file=self.file_logging)
+            """
+            try:
+                self.print_message(f"\nBlock try to correct | Start Index: {YELLOW}{block.get_start_index()}{RESET} | End Index: {YELLOW}{block.get_end_index()}{RESET}"
+                    f" | Left Sub Block: {block.get_left_sub_block()} | "
+                    f"Right Sub Block: {block.get_right_sub_block()} | Current Parity: {CYAN}{block.get_current_parity()}{RESET} | "
+                    f"Correct Parity: {CYAN}{block.get_correct_parity()}{RESET}: {_format_block_key(block, self._classical_channel._correct_key, block.get_start_index(), block.get_end_index())} | {_format_block_key_wo_shuffle(block, self._classical_channel._correct_key, block.get_start_index(), block.get_end_index(), block.get_shuffle())}")
+
+                parent_block = block.get_parent_block()
+
+                if parent_block is None:
+                    print("This block is Top Level", file=self.file_logging)
+                else:
+                    print(
+                        f"Parent Block: {_format_block_key(parent_block, self._classical_channel._correct_key, parent_block.get_start_index(), parent_block.get_end_index())} | {_format_block_key_wo_shuffle(parent_block, self._classical_channel._correct_key, parent_block.get_start_index(), parent_block.get_end_index(), parent_block.get_shuffle())}",
+                        file=self.file_logging)
+            except AttributeError:
+                #In Case Classical Channel is None continue without logging - Performed this way to reuse in case of logging implementation
+                pass
+
         #print(f"TRYING TO CORRECT BLOCK: {block}")
 
         # If we don't know the correct parity of the block, we cannot make progress on this block
         # until Alice has told us what the correct parity is.
         if not self._correct_parity_is_known_or_can_be_inferred(block):
             #print(f"Exit cannot know correct parity or infer it | Block: {block.get_start_index()}:{block.get_end_index()}")
+
+            if __debug__:
+                self.print_message(
+                    f"Not possible to Infer this block parity. {GREEN}Scheduling for asking Alice the Correct Parity and trying to correct later.{RESET}")
             self._schedule_ask_correct_parity(block, correct_right_sibling)
             return 0
 
@@ -1293,6 +1633,8 @@ class Reconciliation:
         # sibling block.
         if block.get_error_parity() == Block.ERRORS_EVEN:
             #print("Exist Block Errors Even")
+            if __debug__:
+                self.print_message(f"{MAGENTA}Even Number of Errors{RESET} (Or None)")
             if correct_right_sibling:
                 return self._try_correct_right_sibling_block(block, cascade)
             return 0
@@ -1300,11 +1642,16 @@ class Reconciliation:
         # If this block contains a single bit, we have finished the recursion and found an error.
         # Correct the error by flipping the key bit that corresponds to this block.
         if block.get_size() == 1:
+            if __debug__:
+                self.print_message(f"This Block contains a Single Bit and an Error was found: {GREEN}Flip Bit!{RESET}")
             self._flip_key_bit_corresponding_to_single_bit_block(block, cascade)
             return 1
 
         # If we get here, it means that there is an odd number of errors in this block and that
         # the block is bigger than 1 bit.
+        if __debug__:
+            self.print_message(
+                f"Block has an Odd number of errors and is bigger than one bit. {GREEN}Dividing block and Trying to correct error{RESET}")
 
         # Recurse to try to correct an error in the left sub-block first, and if there is no error
         # there, in the right sub-block alternatively.
@@ -1320,7 +1667,10 @@ class Reconciliation:
         if right_sibling_block is None:
             right_sibling_block = parent_block.create_right_sub_block()
             self._register_block_key_indexes(right_sibling_block)
+        if __debug__:
+            self.print_message(f"{MAGENTA}Trying to correct Right Sibling Block:{RESET} {right_sibling_block}")
         return self._try_correct(right_sibling_block, False, cascade)
+
 
     def _flip_key_bit_corresponding_to_single_bit_block(self, block: Block, cascade: bool):
 
@@ -1339,6 +1689,18 @@ class Reconciliation:
             if cascade and affected_block.get_error_parity() != Block.ERRORS_EVEN:
                 # If sub_block_reuse is disabled, then only cascade top-level blocks.
                 if self._algorithm.sub_block_reuse or affected_block.is_top_block():
+                    if __debug__:
+                        try:
+                            self.print_message(
+                                f"Scheduling Try Correct Affected Block from Flip Bit Due to CASCADE: {CYAN}{affected_block}{RESET}")
+                            self.print_message(
+                                f"Scheduling Try Correct Affected Block from Flip Bit Due to CASCADE: {_format_block_key(affected_block, self._classical_channel._correct_key, affected_block.get_start_index(), affected_block.get_end_index())} | {_format_block_key_wo_shuffle(affected_block, self._classical_channel._correct_key, affected_block.get_start_index(), affected_block.get_end_index(), affected_block.get_shuffle())} | Indexes: {YELLOW}{affected_block.get_start_index()}{RESET}:{YELLOW}{affected_block.get_end_index()}{RESET}")
+
+                            #print(f"Scheduling Try Correct Affected Block from Flip Bit Due to CASCADE: CYAN{affected_block}RESET", file=self.file_logging)
+                            self.logger.debug(f"Scheduling Try Correct Affected Block from Flip Bit Due to CASCADE: {affected_block}")
+                        except AttributeError:
+                            # In Case Classical Channel is None continue without logging - Performed this way to reuse in case of logging implementation
+                            pass
                     # Test if correct_right_sibling shouldnt be true -- Answer No; correct_right_sibling - True will create None Exception
                     #print(f"Will PERFORM CASCADE EFFECT - affected block: {affected_block}")
                     #print(f"Affected Block: {affected_block}")

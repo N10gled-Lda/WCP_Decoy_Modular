@@ -1321,7 +1321,7 @@ class PolarizationLaserControllerGUI(ctk.CTk):
             if duty_value > 100:
                 self.schedule_gui_update(lambda: self.log_message("✗ Duty cycle cannot exceed 100%"))
                 return
-            duty_cycle = duty_value / 100.0 if duty_value > 1.0 else duty_value
+            duty_cycle = duty_value / 100.0 if duty_value > 0 else duty_value
             if duty_cycle <= 0 or duty_cycle >= 1:
                 self.schedule_gui_update(lambda: self.log_message("✗ Duty cycle must be between 0 and 100% (exclusive)"))
                 return

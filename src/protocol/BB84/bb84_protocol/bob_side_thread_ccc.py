@@ -527,15 +527,10 @@ class BobThread():
     def run_bob_thread(self):
         """Run Bob's part for a single thread to obtain part of the final key."""
         try:
-            print(f"Here 1")
             self.send_detected_idx()
-            print(f"Here 2")
             self.receive_detected_bases()
-            print(f"Here 3")
             self.match_bases()
-            print(f"Here 4")
             self.send_common_indices()
-            print(f"Here 5")
             if self._test_bool:
                 self.send_test_bits()
                 self.receive_test_result()
@@ -650,7 +645,6 @@ class BobThread():
 
     def final_remaining_key(self):
         """Forms the final bits after error checking removing the indices of testing."""
-        print(f"TRUEEEEEE")
         self._remaining_indices = set(self._common_indices) - set(self._common_test_indices)
         logger.debug2("Remaining indices: %s", self._remaining_indices)
         logger.info("Thread id: %s: Forming final key with remaining %s bits (%s - %s)...", self._thread_id, len(self._remaining_indices), len(self._common_indices), len(self._common_test_indices))
