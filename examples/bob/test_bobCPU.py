@@ -18,7 +18,7 @@ def test_proper_bob_architecture():
     print("="*60)
     
     try:
-        from src.bob.bobCPU_proper import BobCPU, BobConfig, BobMode
+        from src.bob.bobCPU import BobCPU, BobConfig, BobMode
         from src.bob.timetagger.simple_timetagger_controller import SimpleTimeTaggerController
         print("✅ All imports successful")
         

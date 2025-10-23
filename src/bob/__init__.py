@@ -10,7 +10,7 @@ from .ot_components import (
 )
 
 # Simple components
-from .bob_cpu import SimpleBobCPU, SimpleBobConfig, SimpleBobMode, SimpleBobStatistics, SimpleBobData
+from .bob_cpu_other import BobCPU, BobConfig, BobMode, BobResults
 from .ot_components.simple_optical_table import SimpleOpticalTable, SimpleOpticalConfig, SimpleDetectorId
 from .ot_components.simple_detectors import SimpleDetectorSystem, SimpleDetectorConfig
 
