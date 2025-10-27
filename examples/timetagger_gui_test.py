@@ -738,22 +738,22 @@ class TimeTaggerControllerGUI(ctk.CTk):
         # Get current polarization mapping (channel -> polarization code)
         pol_labels = self.get_polarization_labels()  # {channel: code}
         
-        # Calculate total counts for each polarization
-        pol_totals = {code: 0 for code, _ in POLARIZATIONS}
+        # Calculate number of bins with at least 1 count for each polarization
+        pol_bin_counts = {code: 0 for code, _ in POLARIZATIONS}
         
         for bin_counts in self.recent_counts:
             for channel, count in bin_counts.items():
                 pol_code = pol_labels.get(channel)
-                if pol_code:
-                    pol_totals[pol_code] += count
+                if pol_code and count >= 1:
+                    pol_bin_counts[pol_code] += 1
         
-        # Calculate total across all polarizations
-        total_all = sum(pol_totals.values())
+        # Calculate total number of bins with at least 1 count across all polarizations
+        total_bins_with_counts = sum(pol_bin_counts.values())
         
         # Update percentage labels
-        if total_all > 0:
+        if total_bins_with_counts > 0:
             for code, _ in POLARIZATIONS:
-                percentage = (pol_totals[code] / total_all) * 100
+                percentage = (pol_bin_counts[code] / total_bins_with_counts) * 100
                 self.percentage_labels[code].configure(text=f"{percentage:.1f}%")
         else:
             for code, _ in POLARIZATIONS:
