@@ -250,8 +250,16 @@ class BobCPU:
     # ===============================
     
     @staticmethod
-    def setup_quantum_channel_listener(host: str, port: int, timeout: float = 10.0, max_retries: int = 10) -> socket.socket:
+    def setup_quantum_channel_listener(host: str, port: int, timeout: float = 10.0, max_retries: int = 10, use_mock_transmitter: bool = False) -> socket.socket:
         """Setup quantum channel listener/client with retry logic."""
+        if use_mock_transmitter:
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind((host, port))
+            listener.listen(1)  # Listen for one connection
+            listener.settimeout(timeout)
+            return listener
+        
         for attempt in range(max_retries):
             try:
                 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -410,9 +418,11 @@ class BobCPU:
             if not self.initialize_system():
                 return False
 
-            self.quantum_connection = self.setup_quantum_channel_listener(self.listen_qch_host, self.listen_qch_port)
+            self.quantum_connection = self.setup_quantum_channel_listener(self.listen_qch_host, self.listen_qch_port, use_mock_transmitter=self.use_mock_transmitter)
             self.logger.info(f"Connected to Alice at {self.listen_qch_host}:{self.listen_qch_port}")
-            
+            if self.use_mock_transmitter:
+                self.logger.info("Using mock transmitter for testing")
+                self.quantum_connection, client_address = self.quantum_connection.accept()
             with self.quantum_connection:
                 return self.run_quantum_reception_with_connection(self.quantum_connection)
         except Exception as e:

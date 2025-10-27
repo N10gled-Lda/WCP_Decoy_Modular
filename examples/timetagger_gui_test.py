@@ -91,7 +91,6 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.polarization_vars: Dict[str, ctk.StringVar] = {
             pol: ctk.StringVar(value=str(len(POLARIZATIONS) - idx)) for idx, (pol, _) in enumerate(POLARIZATIONS)
         }
-        print(f"!!!!Initial polarization vars: {[var.get() for var in self.polarization_vars.values()]}")
         self.bin_duration_ms_var = ctk.StringVar(value="1000")
         self.num_rows_var = ctk.StringVar(value="10")
         self.continuous_var = ctk.BooleanVar(value=True)
