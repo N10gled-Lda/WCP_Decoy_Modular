@@ -87,6 +87,7 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.stats_bin_count = 20  # Number of bins to track for statistics
         self.recent_counts: List[Dict[int, int]] = []  # Store recent bin counts
         self.percentage_labels: Dict[str, ctk.CTkLabel] = {}  # Labels for percentages
+        self.stats_counter_label: Optional[ctk.CTkLabel] = None  # Label showing valid bins / total bins
 
         # Variables for measurement configuration
         self.device_name_var = ctk.StringVar(value="Swabian TimeTagger")
@@ -126,27 +127,34 @@ class TimeTaggerControllerGUI(ctk.CTk):
     def setup_gui(self):
         """Set up the main GUI layout."""
 
+        # Configure grid layout for main window
+        self.grid_rowconfigure(0, weight=0)  # Connection frame - fixed size
+        self.grid_rowconfigure(1, weight=0)  # Settings frame - fixed size
+        self.grid_rowconfigure(2, weight=3)  # Results frame - expandable (higher weight)
+        # self.grid_rowconfigure(3, weight=1)  # Log frame - expandable (lower weight)
+        self.grid_columnconfigure(0, weight=1)
+        
         # Top frame for connection
         connection_frame = ctk.CTkFrame(self)
-        connection_frame.pack(fill="x", padx=10, pady=(10, 0))
+        connection_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 0))
         self.setup_connection_frame(connection_frame)
 
         # Second top frame for channel and measurement config
         setting_frame = ctk.CTkFrame(self)
-        setting_frame.pack(fill="x", padx=10, pady=(10, 0))
+        setting_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=(10, 0))
         self.setup_channel_measurement_frame(setting_frame)
 
         # Bottom frame for results
         results_frame = ctk.CTkFrame(self)
-        results_frame.pack(fill="both", expand=True, padx=10, pady=(10, 0))
+        results_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(10, 0))
         self.setup_results_frame(results_frame)
         
         # LOG
         log_frame = ctk.CTkFrame(self)
-        log_frame.pack(fill="x", padx=10, pady=10)
+        # log_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=10)
         ctk.CTkLabel(log_frame, text="Log", font=ctk.CTkFont(size=16, weight="bold")).pack(padx=10, pady=(10, 5))
         self.logbox = ctk.CTkTextbox(log_frame, height=120)
-        self.logbox.pack(fill="x", expand=True, padx=10, pady=(0,10))
+        self.logbox.pack(fill="both", expand=True, padx=10, pady=(0,10))
 
         # TODO: UNCOMENT AFTER NEW MEASUREMENT RESULTS SECTION
         # self.update_result_table_capacity(int(self.num_rows_var.get()))
@@ -325,17 +333,21 @@ class TimeTaggerControllerGUI(ctk.CTk):
         
         # Statistics frame (row 3)
         stats_frame = ctk.CTkFrame(parent_frame)
-        stats_frame.grid(row=3, column=0, columnspan=5, sticky="ew", padx=5, pady=(0, 10))
+        stats_frame.grid(row=3, column=0, columnspan=5, sticky="ew", padx=10, pady=(0, 10))
         stats_frame.grid_columnconfigure((0,1,2,3,4), weight=1)
         
-        # Column 0: Stats bin count entry
-        # stats_config_frame = ctk.CTkFrame(stats_frame, fg_color="transparent")
-        # stats_config_frame.grid(row=0, column=0, padx=0, pady=0, sticky="ew")
-        # ctk.CTkLabel(stats_config_frame, text="Stats Bins:", font=ctk.CTkFont(size=11, weight="bold")).pack(pady=(0,2))
-        self.stats_bins_entry = ctk.CTkEntry(stats_frame, textvariable=self.stats_bins_var, width=60, placeholder_text="Stats Bins")
-        self.stats_bins_entry.grid(row=0, column=0, padx=(15, 10), pady=5, sticky="ew")
+        # Column 0: Stats bin count entry with counter label
+        stats_config_frame = ctk.CTkFrame(stats_frame, fg_color="transparent")
+        stats_config_frame.grid(row=0, column=0, padx=0, pady=0, sticky="ew")
+        stats_config_frame.grid_columnconfigure(0, weight=1)
+        
+        self.stats_bins_entry = ctk.CTkEntry(stats_config_frame, textvariable=self.stats_bins_var, width=10, placeholder_text="Stats Bins")
+        self.stats_bins_entry.grid(row=0, column=0, padx=(10, 0), pady=5, sticky="ew")
         self.stats_bins_entry.bind("<Return>", lambda e: self.update_stats_bin_count())
         self.stats_bins_entry.bind("<FocusOut>", lambda e: self.update_stats_bin_count())
+        
+        self.stats_counter_label = ctk.CTkLabel(stats_config_frame, text="0/20", font=ctk.CTkFont(size=11))
+        self.stats_counter_label.grid(row=0, column=1, padx=(5, 5), pady=5, sticky="w")
         
         # Columns 1-4: Percentage displays for H, V, D, A
         for col_idx, (code, description) in enumerate(POLARIZATIONS):
@@ -728,34 +740,59 @@ class TimeTaggerControllerGUI(ctk.CTk):
     
     @run_in_background
     def update_statistics(self):
-        """Calculate and update the percentage statistics for each polarization."""
+        """Calculate and update the percentage statistics for each polarization.
+        
+        Filters out bins where:
+        - All channels have 0 counts
+        - More than one channel has counts (ambiguous detection)
+        
+        Only counts bins with exactly one channel having counts (count >= 1).
+        Percentages are calculated as the proportion across all valid bins.
+        """
         if not self.recent_counts:
             # No data yet, show 0%
             for code, _ in POLARIZATIONS:
                 self.percentage_labels[code].configure(text="0.0%")
+            if self.stats_counter_label:
+                self.stats_counter_label.configure(text=f"0/{self.stats_bin_count}")
             return
         
         # Get current polarization mapping (channel -> polarization code)
         pol_labels = self.get_polarization_labels()  # {channel: code}
         
-        # Total number of bins we have (may be less than stats_bin_count if just starting)
-        total_bins = len(self.recent_counts)
-        
-        # Calculate number of bins with at least 1 count for each polarization
+        # Filter and count valid bins for each polarization
         pol_bin_counts = {code: 0 for code, _ in POLARIZATIONS}
+        valid_bins = 0
         
         for bin_counts in self.recent_counts:
-            for channel, count in bin_counts.items():
-                pol_code = pol_labels.get(channel)
-                if pol_code and count >= 1:
-                    pol_bin_counts[pol_code] += 1
+            # Count how many channels have counts >= 1
+            channels_with_counts = [ch for ch, count in bin_counts.items() if count >= 1]
+            
+            # Skip if all channels are 0 or if more than one channel has counts
+            if len(channels_with_counts) == 0 or len(channels_with_counts) > 1:
+                continue
+            
+            # Valid bin: exactly one channel has counts
+            valid_bins += 1
+            channel = channels_with_counts[0]
+            pol_code = pol_labels.get(channel)
+            if pol_code:
+                pol_bin_counts[pol_code] += 1
         
-        # Update percentage labels - each polarization shows its own percentage
-        for code, _ in POLARIZATIONS:
-            percentage = (pol_bin_counts[code] / total_bins) * 100
-            self.percentage_labels[code].configure(text=f"{percentage:.1f}%")
-
-
+        # Update counter label
+        if self.stats_counter_label:
+            self.stats_counter_label.configure(text=f"{valid_bins}/{self.stats_bin_count}")
+        
+        # Calculate and update percentage labels
+        if valid_bins > 0:
+            for code, _ in POLARIZATIONS:
+                percentage = (pol_bin_counts[code] / valid_bins) * 100
+                self.percentage_labels[code].configure(text=f"{percentage:.1f}%")
+        else:
+            # No valid bins
+            for code, _ in POLARIZATIONS:
+                self.percentage_labels[code].configure(text="0.0%")
+    
     def get_polarization_mapping(self) -> Dict[str, int]:
         """Build map from polarization to channel."""
         mapping: Dict[str, int] = {}
