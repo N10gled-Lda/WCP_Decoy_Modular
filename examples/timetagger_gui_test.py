@@ -84,8 +84,9 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.current_max_rows = 0
         
         # Statistics tracking
-        self.stats_bin_count = 20  # Number of bins to track for statistics
-        self.recent_counts: List[Dict[int, int]] = []  # Store recent bin counts
+        self.stats_bin_count = 20  # Number of VALID bins to track for statistics
+        self.recent_counts: List[Dict[int, int]] = []  # Store ALL recent bin counts
+        self.valid_counts: List[Dict[int, int]] = []  # Store only VALID bin counts (filtered)
         self.percentage_labels: Dict[str, ctk.CTkLabel] = {}  # Labels for percentages
         self.stats_counter_label: Optional[ctk.CTkLabel] = None  # Label showing valid bins / total bins
 
@@ -381,7 +382,7 @@ class TimeTaggerControllerGUI(ctk.CTk):
             self.fixed_time_entry.configure(state="normal")
 
     def update_stats_bin_count(self):
-        """Update the number of bins to track for statistics."""
+        """Update the number of VALID bins to track for statistics."""
         try:
             new_count = int(self.stats_bins_var.get())
             if new_count <= 0:
@@ -392,10 +393,10 @@ class TimeTaggerControllerGUI(ctk.CTk):
             old_count = self.stats_bin_count
             self.stats_bin_count = new_count
             
-            # Adjust recent_counts list
+            # Adjust valid_counts list (keep only last N valid bins)
             if new_count < old_count:
-                # Remove oldest entries if new count is smaller
-                self.recent_counts = self.recent_counts[:new_count]
+                # Remove oldest valid entries if new count is smaller
+                self.valid_counts = self.valid_counts[-new_count:]
             # If new count is larger, we just keep existing data and will add more as measurements come
             
             # Recalculate percentages
@@ -623,6 +624,7 @@ class TimeTaggerControllerGUI(ctk.CTk):
         
         # Clear statistics
         self.recent_counts = []
+        self.valid_counts = []
         self.update_statistics()
         
         self.is_measuring = True
@@ -685,11 +687,19 @@ class TimeTaggerControllerGUI(ctk.CTk):
         """Add a new row of results to the GUI."""
         self.bin_row_index += 1
         
-        # Save counts for statistics
+        # Save counts to recent_counts (all measurements)
         self.recent_counts.append(counts.copy())
-        # Keep only the last stats_bin_count entries
-        if len(self.recent_counts) > self.stats_bin_count:
-            self.recent_counts.pop(0)
+        
+        # Check if this is a valid bin (exactly one channel has counts >= 1)
+        channels_with_counts = [ch for ch, count in counts.items() if count >= 1]
+        
+        if len(channels_with_counts) == 1:
+            # Valid bin: add to valid_counts and maintain the limit
+            self.valid_counts.append(counts.copy())
+            
+            # Keep only the last stats_bin_count VALID entries
+            if len(self.valid_counts) > self.stats_bin_count:
+                self.valid_counts.pop(0)
         
         # Update statistics display
         self.update_statistics()
@@ -742,15 +752,12 @@ class TimeTaggerControllerGUI(ctk.CTk):
     def update_statistics(self):
         """Calculate and update the percentage statistics for each polarization.
         
-        Filters out bins where:
-        - All channels have 0 counts
-        - More than one channel has counts (ambiguous detection)
-        
-        Only counts bins with exactly one channel having counts (count >= 1).
-        Percentages are calculated as the proportion across all valid bins.
+        Uses only valid bins (where exactly one channel has counts >= 1).
+        The stats_bin_count refers to the number of VALID bins to track,
+        not the total number of measurements.
         """
-        if not self.recent_counts:
-            # No data yet, show 0%
+        if not self.valid_counts:
+            # No valid data yet, show 0%
             for code, _ in POLARIZATIONS:
                 self.percentage_labels[code].configure(text="0.0%")
             if self.stats_counter_label:
@@ -760,24 +767,19 @@ class TimeTaggerControllerGUI(ctk.CTk):
         # Get current polarization mapping (channel -> polarization code)
         pol_labels = self.get_polarization_labels()  # {channel: code}
         
-        # Filter and count valid bins for each polarization
+        # Count valid bins for each polarization
         pol_bin_counts = {code: 0 for code, _ in POLARIZATIONS}
-        valid_bins = 0
+        valid_bins = len(self.valid_counts)
         
-        for bin_counts in self.recent_counts:
-            # Count how many channels have counts >= 1
+        for bin_counts in self.valid_counts:
+            # Each entry in valid_counts already has exactly one channel with counts
             channels_with_counts = [ch for ch, count in bin_counts.items() if count >= 1]
             
-            # Skip if all channels are 0 or if more than one channel has counts
-            if len(channels_with_counts) == 0 or len(channels_with_counts) > 1:
-                continue
-            
-            # Valid bin: exactly one channel has counts
-            valid_bins += 1
-            channel = channels_with_counts[0]
-            pol_code = pol_labels.get(channel)
-            if pol_code:
-                pol_bin_counts[pol_code] += 1
+            if len(channels_with_counts) == 1:
+                channel = channels_with_counts[0]
+                pol_code = pol_labels.get(channel)
+                if pol_code:
+                    pol_bin_counts[pol_code] += 1
         
         # Update counter label
         if self.stats_counter_label:
