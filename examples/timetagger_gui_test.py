@@ -316,7 +316,7 @@ class TimeTaggerControllerGUI(ctk.CTk):
         ctk.CTkLabel(parent_frame, text="Measurements Results (Counts per Bin)", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, columnspan=5, pady=(5,0))
 
         # Header labels
-        bin_header = ctk.CTkLabel(parent_frame, text="Bin Index", font=ctk.CTkFont(size=13, weight="bold"))
+        bin_header = ctk.CTkLabel(parent_frame, text="Total Count", font=ctk.CTkFont(size=13, weight="bold"))
         bin_header.grid(row=1, column=0, padx=15, pady=(5,0))
         polarizations = [desc for _, desc in POLARIZATIONS]
         for col_idx, pol_name in enumerate(polarizations):
@@ -718,7 +718,11 @@ class TimeTaggerControllerGUI(ctk.CTk):
 
 
         row = self.bin_row_index-1
-        ctk.CTkLabel(self.results_scrollable_frame, text=str(row+1)).grid(row=row, column=0, padx=5)
+        
+        # Calculate total counts for this bin
+        total_counts = sum(counts.values())
+        
+        ctk.CTkLabel(self.results_scrollable_frame, text=str(total_counts)).grid(row=row, column=0, padx=5)
         pol_labels = self.get_polarization_labels()
         for i, channel in enumerate(pol_labels.keys()):
             count = counts.get(channel, 0)
