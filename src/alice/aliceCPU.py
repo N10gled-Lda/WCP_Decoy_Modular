@@ -280,7 +280,8 @@ class AliceCPU:
         try:
             if (self.use_hardware):
                 self.polarization_controller.driver.set_operation_period(1)
-                self.polarization_controller.driver.set_stepper_frequency(500)
+                self.polarization_controller.driver.set_stepper_frequency(1000)
+                self.laser_controller.set_pulse_parameters(duty_cycle=0.1, frequency=1000)
         except Exception as e:
             self.logger.error(f"Error setting polarization hardware parameters (period/frequency): {e}")
             self.results.errors.append(f"Error setting polarization hardware parameters (period/frequency): {e}")
