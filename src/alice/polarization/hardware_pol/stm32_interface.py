@@ -7,6 +7,8 @@ from enum import IntEnum
 
 START_BYTE  = 0xAA
 RESPONSE    = 0x80
+FREQUENCY_LIMIT = 5000  # Hz
+PERIOD_LIMIT    = 60000 # ms
 
 class CommandStatus(IntEnum):
     COMMAND_CRC_ERROR = 0
@@ -338,14 +340,14 @@ class STM32Interface:
             return False
 
         if is_stepper:
-            # Stepper motor frequency: 1 Hz to 1000 Hz
-            if not isinstance(frequency, int) or not (1 <= frequency <= 1000):
-                print("Invalid stepper motor frequency. Must be an integer between 1 and 500 Hz.")
+            # Stepper motor frequency: 1 Hz to 5000 Hz
+            if not isinstance(frequency, int) or not (1 <= frequency <= FREQUENCY_LIMIT):
+                print(f"Invalid stepper motor frequency in the stm32 interface. Must be an integer between 1 and {FREQUENCY_LIMIT} Hz.")
                 return False
         else:
             # Operation period: 100 ms to 60000 ms
-            if not isinstance(frequency, int) or not (1 <= frequency <= 60000):
-                print("Invalid operation period. Must be an integer between 1 and 60000 ms.")
+            if not isinstance(frequency, int) or not (1 <= frequency <= PERIOD_LIMIT):
+                print(f"Invalid operation period in the stm32 interface. Must be an integer between 1 and {PERIOD_LIMIT} ms.")
                 return False
 
         # Choose sub-command based on is_stepper

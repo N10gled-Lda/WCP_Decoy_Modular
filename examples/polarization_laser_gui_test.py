@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 import functools
 
 from src.alice.polarization.polarization_controller import PolarizationController, create_polarization_controller_with_hardware
-from src.alice.polarization.polarization_base import PolarizationState
+from src.alice.polarization.polarization_hardware import FREQUENCY_LIMIT, PERIOD_LIMIT
 from src.alice.laser.laser_simulator import SimulatedLaserDriver
 from src.alice.laser.laser_controller import LaserController, create_laser_controller_with_hardware
 from src.alice.laser.hardware_laser.digilent_digital_interface import list_digital_devices
@@ -31,7 +31,7 @@ import serial.tools.list_ports
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-USE_SIMULATION = True  # Set to True to use simulated laser driver
+USE_SIMULATION = False  # Set to True to use simulated laser driver
 
 def run_in_background(func):
     """Decorator to run hardware operations in background thread"""
@@ -873,12 +873,12 @@ class PolarizationLaserControllerGUI(ctk.CTk):
         try:
             freq_text = self.stepper_entry.get()
             if not freq_text or not freq_text.isdigit():
-                self.schedule_gui_update(lambda: self.log_message("✗ Please enter a valid frequency (1-1000 Hz)"))
+                self.schedule_gui_update(lambda: self.log_message(f"✗ Please enter a valid frequency (1-{FREQUENCY_LIMIT} Hz)"))
                 return
             
             frequency = int(freq_text)
-            if frequency < 1 or frequency > 1000:
-                self.schedule_gui_update(lambda: self.log_message("✗ Frequency must be between 1 and 1000 Hz"))
+            if frequency < 1 or frequency > FREQUENCY_LIMIT:
+                self.schedule_gui_update(lambda: self.log_message(f"✗ Frequency must be between 1 and {FREQUENCY_LIMIT} Hz"))
                 return
 
             # Hardware operation in background
@@ -903,12 +903,12 @@ class PolarizationLaserControllerGUI(ctk.CTk):
         try:
             period_text = self.period_entry.get()
             if not period_text or not period_text.isdigit():
-                self.schedule_gui_update(lambda: self.log_message("✗ Please enter a valid period (1-60000 ms)"))
+                self.schedule_gui_update(lambda: self.log_message(f"✗ Please enter a valid period (1-{PERIOD_LIMIT} ms)"))
                 return
             
             period = int(period_text)
-            if period < 1 or period > 60000:
-                self.schedule_gui_update(lambda: self.log_message("✗ Period must be between 1 and 60000 ms"))
+            if period < 1 or period > PERIOD_LIMIT:
+                self.schedule_gui_update(lambda: self.log_message(f"✗ Period must be between 1 and {PERIOD_LIMIT} ms"))
                 return
 
             # Hardware operation in background
@@ -1341,6 +1341,8 @@ class PolarizationLaserControllerGUI(ctk.CTk):
             def update_gui():
                 if success:
                     freq_display = f"{frequency:.1f} Hz" if frequency is not None else "current"
+                    # Update the continuous frequency entry as well and the time entry
+                    self._on_freq_changed()
                     self.log_message(
                         f"✓ Updated laser pulse parameters → duty={duty_cycle*100:.1f}% freq={freq_display}"
                     )

@@ -3,7 +3,7 @@ import logging
 import serial.tools.list_ports
 import time
 from typing import Any, List, Optional
-from .hardware_pol.stm32_interface import STM32Interface
+from .hardware_pol.stm32_interface import STM32Interface, FREQUENCY_LIMIT, PERIOD_LIMIT
 from .polarization_base import BasePolarizationDriver, PolarizationState
 
 TIMEOUT_CHECK_AVAILABILITY = 5  # seconds
@@ -262,7 +262,7 @@ class PolarizationHardware(BasePolarizationDriver):
         Set the stepper motor frequency. This frequency controls the speed of the stepper motor to rotate the target angle.
         
         Args:
-            frequency: Frequency in Hz (1-1000)
+            frequency: Frequency in Hz (1-5000)
             
         Returns:
             True if successful, False otherwise
@@ -270,9 +270,9 @@ class PolarizationHardware(BasePolarizationDriver):
         if not self.connected:
             self.logger.error("Hardware not connected. Call initialize() first.")
             return False
-            
-        if not (1 <= frequency <= 1000):
-            self.logger.error("Stepper frequency must be between 1 and 1000 Hz")
+
+        if not (1 <= frequency <= FREQUENCY_LIMIT):
+            self.logger.error(f"Stepper frequency must be between 1 and {FREQUENCY_LIMIT} Hz")
             return False
             
         try:
@@ -305,8 +305,8 @@ class PolarizationHardware(BasePolarizationDriver):
             self.logger.error("Hardware not connected. Call initialize() first.")
             return False
             
-        if not (1 <= period <= 60000):
-            self.logger.error("Operation period must be between 1 and 60000 ms")
+        if not (1 <= period <= PERIOD_LIMIT):
+            self.logger.error(f"Operation period must be between 1 and {PERIOD_LIMIT} ms")
             return False
             
         try:
