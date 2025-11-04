@@ -113,7 +113,7 @@ class PolarizationHardware(BasePolarizationDriver):
             while not self.stm.available:
                 if time.time() - start_time > timeout:
                     self.logger.error(f"STM32 interface did not become available within {timeout} seconds")
-                    raise TimeoutError(f"STM32 interface not available within the timeout period of {timeout} seconds")
+                    raise Exception(f"STM32 interface not available within the {timeout}s timeout period")
                 time.sleep(0.0001)
             # Update our availability status
             self.available = True
