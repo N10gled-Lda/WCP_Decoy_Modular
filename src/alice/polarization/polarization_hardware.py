@@ -85,12 +85,17 @@ class PolarizationHardware(BasePolarizationDriver):
         if self.stm:
             try:
                 self.stm.stop()
+                self.stm = None
                 self.connected = False
+                self.available = False
                 self.logger.info("STM32 connection closed")
                 return True
             except Exception as e:
                 self.logger.error(f"Error during shutdown: {e}")
+                self.connected = False
+                self.available = False
                 return False
+        return True
 
     def _check_availability(self, timeout: float = TIMEOUT_CHECK_AVAILABILITY) -> None:
         """

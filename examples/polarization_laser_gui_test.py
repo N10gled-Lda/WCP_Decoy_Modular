@@ -645,7 +645,15 @@ class PolarizationLaserControllerGUI(ctk.CTk):
             
             # This is the potentially slow operation - now in background
             self.pol_controller = create_polarization_controller_with_hardware(com_port=com_port)
-            self.pol_controller.initialize()
+            if not self.pol_controller.initialize():
+                def update_error():
+                    self.status_label.configure(text="✗ Initialization failed", text_color="red")
+                    self.connect_button.configure(text="Connect", state="normal")
+                    self.log_message("✗ Hardware initialization failed")
+                    self._connecting = False
+                    self.is_connected = False
+                self.schedule_gui_update(update_error)
+                return
             
             # Connection successful
             def update_success():
@@ -745,7 +753,8 @@ class PolarizationLaserControllerGUI(ctk.CTk):
             self.schedule_gui_update(update_success)
             
         except Exception as e:
-            self.schedule_gui_update(lambda: self.log_message(f"✗ Error setting preset: {str(e)}"))
+            _msg = str(e)
+            self.schedule_gui_update(lambda m=_msg: self.log_message(f"✗ Error setting preset: {m}"))
 
     @run_in_background
     def set_polarization_qrng_async(self):
@@ -772,7 +781,8 @@ class PolarizationLaserControllerGUI(ctk.CTk):
             self.schedule_gui_update(update_success)
             
         except Exception as e:
-            self.schedule_gui_update(lambda: self.log_message(f"✗ Error with QRNG: {str(e)}"))
+            _msg = str(e)
+            self.schedule_gui_update(lambda m=_msg: self.log_message(f"✗ Error with QRNG: {m}"))
 
     @run_in_background
     def send_polarization_numbers_async(self):
@@ -802,7 +812,8 @@ class PolarizationLaserControllerGUI(ctk.CTk):
             self.schedule_gui_update(update_success)
             
         except Exception as e:
-            self.schedule_gui_update(lambda: self.log_message(f"✗ Error sending polarization numbers: {str(e)}"))
+            _msg = str(e)
+            self.schedule_gui_update(lambda m=_msg: self.log_message(f"✗ Error sending polarization numbers: {m}"))
 
     @run_in_background
     def set_polarization_device_async(self):
@@ -828,7 +839,8 @@ class PolarizationLaserControllerGUI(ctk.CTk):
             self.schedule_gui_update(update_success)
             
         except Exception as e:
-            self.schedule_gui_update(lambda: self.log_message(f"✗ Error setting device: {str(e)}"))
+            _msg = str(e)
+            self.schedule_gui_update(lambda m=_msg: self.log_message(f"✗ Error setting device: {m}"))
 
     @run_in_background
     def set_angle_direct_async(self):
@@ -861,7 +873,8 @@ class PolarizationLaserControllerGUI(ctk.CTk):
             self.schedule_gui_update(update_success)
             
         except Exception as e:
-            self.schedule_gui_update(lambda: self.log_message(f"✗ Error setting angle: {str(e)}"))
+            _msg = str(e)
+            self.schedule_gui_update(lambda m=_msg: self.log_message(f"✗ Error setting angle: {m}"))
 
     @run_in_background
     def set_stepper_frequency_async(self):
@@ -891,7 +904,8 @@ class PolarizationLaserControllerGUI(ctk.CTk):
             self.schedule_gui_update(update_success)
             
         except Exception as e:
-            self.schedule_gui_update(lambda: self.log_message(f"✗ Error setting stepper frequency: {str(e)}"))
+            _msg = str(e)
+            self.schedule_gui_update(lambda m=_msg: self.log_message(f"✗ Error setting stepper frequency: {m}"))
 
     @run_in_background
     def set_operation_period_async(self):
@@ -921,7 +935,8 @@ class PolarizationLaserControllerGUI(ctk.CTk):
             self.schedule_gui_update(update_success)
             
         except Exception as e:
-            self.schedule_gui_update(lambda: self.log_message(f"✗ Error setting operation period: {str(e)}"))
+            _msg = str(e)
+            self.schedule_gui_update(lambda m=_msg: self.log_message(f"✗ Error setting operation period: {m}"))
             
     def get_angle_for_state(self, basis: Basis, bit: Bit) -> int:
         """Get angle for polarization state"""

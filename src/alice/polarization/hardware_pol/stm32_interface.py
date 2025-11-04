@@ -75,6 +75,14 @@ class STM32Interface:
             self._send_thread.join(timeout=1)
         if self._handler_thread:
             self._handler_thread.join(timeout=1)
+        
+        # Close the serial port
+        if self.serial_port and self.serial_port.is_open:
+            try:
+                self.serial_port.close()
+                print("Serial port closed successfully")
+            except Exception as e:
+                print(f"Error closing serial port: {e}")
 
     def _send_loop(self):
         while self.running:
