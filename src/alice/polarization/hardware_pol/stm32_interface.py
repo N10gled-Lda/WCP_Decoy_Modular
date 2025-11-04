@@ -302,6 +302,9 @@ class STM32Interface:
         if not isinstance(device, int) or device not in (1, 2):
             print("Invalid device. Must be 1 or 2.")
             return False
+        
+        self.available = False
+        self.on_available()
 
         payload = bytearray([device])
         msg = [START_BYTE, Command.COMMAND_POLARIZATION.value, SubCommandPolarization.SUB_COMMAND_POLARIZATION_DEVICE.value, len(payload)]
@@ -327,6 +330,9 @@ class STM32Interface:
             if is_offset
             else SubCommandAngle.SUB_COMMAND_SET_ANGLE.value
         )
+
+        self.available = False
+        self.on_available()
 
         # Prepare payload (MSB first)
         payload = value.to_bytes(2, byteorder='big')
@@ -364,6 +370,9 @@ class STM32Interface:
             if is_stepper
             else SubCommandFrequency.SUB_COMMAND_SET_OPERATION_FREQUENCY.value
         )
+
+        self.available = False
+        self.on_available()
 
         # Prepare payload (MSB first)
         payload = frequency.to_bytes(2, byteorder='big')

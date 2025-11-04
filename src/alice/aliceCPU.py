@@ -281,6 +281,7 @@ class AliceCPU:
             if (self.use_hardware):
                 self.polarization_controller.driver.set_operation_period(1)
                 self.polarization_controller.driver.set_stepper_frequency(1000)
+                self.polarization_controller.driver.set_polarization_device(2) # Set HWP                
                 self.laser_controller.set_pulse_parameters(duty_cycle=0.1, frequency=1000)
         except Exception as e:
             self.logger.error(f"Error setting polarization hardware parameters (period/frequency): {e}")
