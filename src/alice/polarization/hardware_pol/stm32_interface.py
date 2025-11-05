@@ -70,17 +70,32 @@ class STM32Interface:
     def stop(self):
         self.running = False
         if self._reception_thread:
-            self._reception_thread.join(timeout=1)
+            self._reception_thread.join(timeout=3)
+            if self._reception_thread.is_alive():
+                print("  WARNING: Reception thread did not terminate within timeout")
+            else:
+                if __debug__:
+                    print("  DEBUG: Reception thread terminated successfully")
         if self._send_thread:
-            self._send_thread.join(timeout=1)
+            self._send_thread.join(timeout=3)
+            if self._send_thread.is_alive():
+                print("  WARNING: Send thread did not terminate within timeout")
+            else:
+                if __debug__:
+                    print("  DEBUG: Send thread terminated successfully")
         if self._handler_thread:
-            self._handler_thread.join(timeout=1)
-        
+            self._handler_thread.join(timeout=3)
+            if self._handler_thread.is_alive():
+                print("  WARNING: Handler thread did not terminate within timeout")
+            else:
+                if __debug__:
+                    print("  DEBUG: Handler thread terminated successfully")
+                    
         # Close the serial port
         if self.serial_port and self.serial_port.is_open:
             try:
                 self.serial_port.close()
-                print("Serial port closed successfully")
+                print("  WARNING: Serial port closed successfully")
             except Exception as e:
                 print(f"Error closing serial port: {e}")
 
@@ -88,7 +103,8 @@ class STM32Interface:
         while self.running:
             try:
                 msg = self.send_queue.get(timeout=0.1)
-                self.serial_port.write(msg)
+                if self.running:
+                    self.serial_port.write(msg)
             except Empty:
                 continue
 
@@ -96,8 +112,11 @@ class STM32Interface:
         while self.running:
             # Wait for start byte
             start = self.serial_port.read(1)
-            while not start or start[0] != START_BYTE:
+            while self.running and (not start or start[0] != START_BYTE):
                 start = self.serial_port.read(1)
+
+            if not self.running:
+                break
 
             # Read command
             cmd = self.serial_port.read(1)
@@ -141,7 +160,8 @@ class STM32Interface:
             # CRC check
             crc_data = bytearray([start[0], cmd[0], sub_cmd[0], length[0]]) + payload
             if crc[0] == self.crc_calculate(crc_data):
-                print(f"Received message: cmd={true_cmd}, sub_cmd={sub_cmd[0]}, length={length[0]}, payload={list(payload)}, is_response={is_response}")
+                if __debug__:
+                    print(f"Received message: cmd={true_cmd}, sub_cmd={sub_cmd[0]}, length={length[0]}, payload={list(payload)}, is_response={is_response}")
                 self.receive_queue.put({
                     'cmd': true_cmd,
                     'is_response': is_response,
@@ -158,12 +178,13 @@ class STM32Interface:
     def _handler_loop(self):
         while self.running:
             try:
-                msg = self.receive_queue.get()
+                msg = self.receive_queue.get(timeout=0.1)
             except Empty:
                 # sleep(0.01)
                 continue
-
-            print(f"Handler received: {msg}")  # <-- Print the received message
+            
+            if __debug__:
+                print(f"Handler received: {msg}")  # <-- Print the received message
             # Check if msg is a dict (valid message) or a list (error response)
             if isinstance(msg, dict):
                 cmd = msg['cmd']
@@ -178,10 +199,10 @@ class STM32Interface:
                             self.connected = True
                             if self.on_connected:
                                 self.on_connected()
-                                print("Connected to STM32")
+                                print("STM32 interface: Connected to STM32")
                         elif payload[0] == CommandStatus.MISSING_CONNECTION:
                             self.connect()
-                            print("Missing connection, retrying...")
+                            print("STM32 interface: Missing connection, retrying...")
                         elif payload[0] == CommandStatus.COMMAND_INVALID:
                             # TODO
                             pass
@@ -269,6 +290,7 @@ class STM32Interface:
 
     def send_cmd_polarization_numbers(self, numbers):
         if not self.connected:
+            print("STM32 interface: Not connected.")
             return False
 
         # Validate: must be a list of int, each int 0-3, and quantity < 100
@@ -277,7 +299,7 @@ class STM32Interface:
             or not all(isinstance(n, int) and 0 <= n <= 3 for n in numbers)
             or len(numbers) >= 100
         ):
-            print("Invalid polarization numbers. Must be a list of integers (0-3) with less than 100 elements.")
+            print("STM32 interface: Invalid polarization numbers. Must be a list of integers (0-3) with less than 100 elements.")
             return False
 
         self.available = False
@@ -290,17 +312,18 @@ class STM32Interface:
 
         self.send_queue.put(bytearray(msg))
 
-        print("Polarization numbers on message queue:", numbers)
+        if __debug__:
+            print("STM32 interface: Polarization numbers on message queue:", numbers)
         return True
     
     def send_cmd_polarization_device(self, device):
         if not self.connected:
-            print("Not connected.")
+            print("STM32 interface: Not connected.")
             return False
 
         # Validate: must be an integer, and either 1 or 2
         if not isinstance(device, int) or device not in (1, 2):
-            print("Invalid device. Must be 1 or 2.")
+            print("STM32 interface: Invalid device. Must be 1 or 2.")
             return False
         
         self.available = False
@@ -312,16 +335,19 @@ class STM32Interface:
         msg.append(self.crc_calculate(bytearray(msg)))
 
         self.send_queue.put(bytearray(msg))
-        print(f"Polarization device command {device} sent.")
+
+        if __debug__:
+            print(f"STM32 interface: Polarization device command {device} sent.")
         return True
 
     def send_cmd_set_angle(self, value, is_offset=False):
         if not self.connected:
+            print("STM32 interface: Not connected.")            
             return False
 
         # Validate: must be an integer between 0 and 360
         if not isinstance(value, int) or not (0 <= value <= 360):
-            print("Invalid value. Must be an integer between 0 and 360.")
+            print("STM32 interface: Invalid value. Must be an integer between 0 and 360.")
             return False
 
         # Choose sub-command based on is_offset
@@ -346,22 +372,25 @@ class STM32Interface:
         msg.append(self.crc_calculate(bytearray(msg)))
 
         self.send_queue.put(bytearray(msg))
-        print(f"Angle command {value} sent as {'offset' if is_offset else 'angle'}.")
+
+        if __debug__:
+            print(f"STM32 interface: Angle command {value} sent as {'offset' if is_offset else 'angle'}.")
         return True
     
     def send_cmd_set_frequency(self, frequency, is_stepper=False):
         if not self.connected:
+            print("STM32 interface: Not connected.")
             return False
 
         if is_stepper:
             # Stepper motor frequency: 1 Hz to 5000 Hz
             if not isinstance(frequency, int) or not (1 <= frequency <= FREQUENCY_LIMIT):
-                print(f"Invalid stepper motor frequency in the stm32 interface. Must be an integer between 1 and {FREQUENCY_LIMIT} Hz.")
+                print(f"STM32 interface: Invalid stepper motor frequency. Must be an integer between 1 and {FREQUENCY_LIMIT} Hz.")
                 return False
         else:
             # Operation period: 100 ms to 60000 ms
             if not isinstance(frequency, int) or not (1 <= frequency <= PERIOD_LIMIT):
-                print(f"Invalid operation period in the stm32 interface. Must be an integer between 1 and {PERIOD_LIMIT} ms.")
+                print(f"STM32 interface: Invalid operation period. Must be an integer between 1 and {PERIOD_LIMIT} ms.")
                 return False
 
         # Choose sub-command based on is_stepper
@@ -373,7 +402,7 @@ class STM32Interface:
 
         self.available = False
         self.on_available()
-
+        
         # Prepare payload (MSB first)
         payload = frequency.to_bytes(2, byteorder='big')
         msg = [
@@ -386,7 +415,9 @@ class STM32Interface:
         msg.append(self.crc_calculate(bytearray(msg)))
 
         self.send_queue.put(bytearray(msg))
-        print(f"Frequency command {frequency} sent as {'stepper motor' if is_stepper else 'operation period'}.")
+
+        if __debug__:
+            print(f"STM32 interface: Frequency command {frequency} sent as {'stepper motor' if is_stepper else 'operation period'}.")
         return True
 
     def crc_calculate(self, data: bytes) -> int:
