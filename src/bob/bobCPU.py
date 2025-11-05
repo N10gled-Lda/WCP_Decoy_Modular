@@ -814,26 +814,26 @@ if __name__ == "__main__":
     config = BobConfig(
         # Detection parameters
         num_expected_pulses=100,
-        pulse_period_seconds=0.1,
+        pulse_period_seconds=0.5,
         measurement_fraction=0.8,
         loss_rate=0.0,
         # Hardware parameters
-        use_hardware=False,
+        use_hardware=True,
         detector_channels=[1, 2, 3, 4],
         dark_count_rate=50.0,
         mode=BobMode.CONTINUOUS,
         # Quantum channel parameters
         use_mock_transmitter=False,
         # listen_qch_host="localhost",
-        listen_qch_host="127.0.0.1",
+        listen_qch_host="10.127.1.178",
         listen_qch_port=12345,
         # Classical communication parameters
         # alice_ip="localhost",
-        alice_ip="127.0.0.1",
-        alice_port=54321,
+        alice_ip="10.127.1.178",
+        alice_port=65432,
         # bob_ip="localhost", 
-        bob_ip="127.0.0.1",
-        bob_port=54322,
+        bob_ip="10.127.1.177",
+        bob_port=65433,
         shared_secret_key="IzetXlgAnY4oye56",
         # Post-processing parameters
         enable_post_processing=True,

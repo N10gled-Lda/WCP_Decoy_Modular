@@ -202,7 +202,7 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
             
             # Process the 2D array: data[channel_index][time_bin_index]
             for i, channel in enumerate(self.detector_channels):
-                print(f" DEBUG: Processing channel {channel} out of {len(data)}:")
+                # print(f" DEBUG: Processing channel {channel} out of {len(data)}:")
                 if i < len(data):
                     # data[i] is the array of time bins for this channel
                     time_bins = data[i]  # Array of counts per time bin
@@ -218,14 +218,15 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
                         bin_time_s = [(bin_idx * self.binwidth_ps / 1e12) for bin_idx, _ in non_zero_bins]
                         self.logger.debug(f"Channel {channel}: {total_counts} total counts in {len(non_zero_bins)} bins: {non_zero_bins}")
                         self.logger.debug(f"  Bin times: {[f'{t:.1f}s' for t in bin_time_s]}")
-                        print(f" DEBUG: Channel {channel}: {total_counts} counts at times {[f'{t:.1f}s' for t in bin_time_s]}")
+                        # print(f" DEBUG: Channel {channel}: {total_counts} counts at times {[f'{t:.1f}s' for t in bin_time_s]}")
                     else:
                         self.logger.debug(f"Channel {channel}: No counts detected")
-                        print(f" DEBUG: Channel {channel}: No counts")
+                        # print(f" DEBUG: Channel {channel}: No counts")
                 else:
                     counts[channel] = 0
-                    print(f" DEBUG: Channel {channel}: No data available")
-            
+                    self.logger.debug(f"Channel {channel}: No data available")
+                    # print(f" DEBUG: Channel {channel}: No data available")
+
             return counts
             
         except Exception as e:
@@ -247,7 +248,10 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
             return {'error': 'Counter not configured'}
         
         try:
-            self.set_measurement_duration(duration_seconds)
+            if self._measurement_duration and abs(duration_seconds - self._measurement_duration) > 0.001:
+                self.logger.warning(f"Requested duration {duration_seconds}s differs from configured {self._measurement_duration}s. Setting new duration.")
+                self.set_measurement_duration(duration_seconds)
+                
             if not self.counter:
                 return {'error': 'Failed to set measurement duration'}
             
@@ -257,13 +261,13 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
             
             # while self.counter.isRunning():
             #     time.sleep(0.001)
-            print(f" DEBUG: Waiting for measurement to finish (~{duration_seconds}s)...")
+            self.logger.debug(f" Waiting for measurement to finish (~{duration_seconds}s)...")
             self.counter.waitUntilFinished()
-            print(" DEBUG: Measurement finished.")
+            self.logger.debug(" Measurement finished.")
 
             # Get raw 2D time-binned data 
             timebin_data = self.counter.getData(rolling=False)
-            print(f" DEBUG: Retrieved timebin data with shape {np.array(timebin_data).shape}")
+            self.logger.debug(f" Retrieved timebin data with shape {np.array(timebin_data).shape}")
             # Also compute total counts per channel
             counts_per_channel = {}
             for i, channel in enumerate(self.detector_channels):

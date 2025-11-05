@@ -259,6 +259,10 @@ class QKDAliceImplementation:
                                                                     receive_queue, thread_id=thread_id, alice_bits=alice_bits, alice_bases=alice_bases, alice_qubytes=alice_bits)
         end_bs_time_tick = time.perf_counter()
 
+        if __debug__:
+            if alice_ccc.final_key != []:
+                print(f"Alice Base Sifted Key Len ({(len(alice_ccc.final_key))}):\n{alice_ccc.final_key}")
+
         if alice_ccc.failed_percentage > error_threshold and alice_ccc.final_key == []:
             print(f"Thread {thread_id} - Key Rejected due to High QBER.")
             return

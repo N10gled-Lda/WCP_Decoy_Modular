@@ -25,7 +25,7 @@ from src.bob.timetagger.simple_timetagger_base_hardware_simulator import SimpleT
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-USE_SIMULATION = True  # Set to False to use real hardware by default
+USE_SIMULATION = False  # Set to False to use real hardware by default
 POLARIZATIONS = [
     ("H", "H (0º)"),
     ("V", "V (90º)"),
@@ -103,7 +103,7 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.stats_bins_var = ctk.StringVar(value="20")
         self.continuous_var = ctk.BooleanVar(value=True)
         self.repeat_count_var = ctk.StringVar(value="10")
-        self.use_simulator_var = ctk.BooleanVar(value=True)
+        self.use_simulator_var = ctk.BooleanVar(value=USE_SIMULATION)
         
         # Setup GUI components
         self.setup_gui()
@@ -651,6 +651,7 @@ class TimeTaggerControllerGUI(ctk.CTk):
         logger.info("Measurement loop started.")
         
         iteration = 0
+        self.timetagger_controller.set_measurement_duration(self.time_per_bin)
         while self.is_measuring:
 
             # Check for fixed time limit
@@ -661,7 +662,6 @@ class TimeTaggerControllerGUI(ctk.CTk):
                     break
             
             try:
-                self.timetagger_controller.set_measurement_duration(self.time_per_bin)
                 counts = self.timetagger_controller.measure_counts()
                 
                 if counts:
@@ -722,11 +722,13 @@ class TimeTaggerControllerGUI(ctk.CTk):
         # Calculate total counts for this bin
         total_counts = sum(counts.values())
         
-        ctk.CTkLabel(self.results_scrollable_frame, text=str(total_counts)).grid(row=row, column=0, padx=5)
+        # If only one is non-zero, color the label green, else black
+        label_color = "green4" if sum(1 for c in counts.values() if c > 0) == 1 else "black"
+        ctk.CTkLabel(self.results_scrollable_frame, text=str(total_counts), text_color=label_color).grid(row=row, column=0, padx=5)
         pol_labels = self.get_polarization_labels()
         for i, channel in enumerate(pol_labels.keys()):
             count = counts.get(channel, 0)
-            ctk.CTkLabel(self.results_scrollable_frame, text=str(count)).grid(row=row, column=i + 1, padx=5)
+            ctk.CTkLabel(self.results_scrollable_frame, text=str(count), text_color=label_color).grid(row=row, column=i + 1, padx=5)
             # self.count_labels[channel][row].configure(text=str(count))
 
         # TODO: TRY TO INSTEAD OF DESTROY AND MOVE ALL LABELS JUST MODIFY THE TEXT OF THE EXISTING LABELS

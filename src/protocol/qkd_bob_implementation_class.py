@@ -272,6 +272,10 @@ class QKDBobImplementation:
             print(f"Thread {thread_id} - Key Rejected due to High QBER.")
             return
         
+        if __debug__:
+            if bob_ccc.final_key != []:
+                print(f"Alice Base Sifted Key Len ({(len(bob_ccc.final_key))}):\n{bob_ccc.final_key}")
+        
         bob_er = self.bob_process_error_correction_classical_steps(bob_ccc, self._role_bob, receive_queue,
                                                                    thread_id=thread_id)
         end_er_time_tick = time.perf_counter()
