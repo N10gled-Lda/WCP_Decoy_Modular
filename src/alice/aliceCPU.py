@@ -279,6 +279,7 @@ class AliceCPU:
         # Set polarization controller period to 1ms to avoid delays when sending one by one
         try:
             if (self.use_hardware):
+                self.logger.debug("Setting polarization hardware parameters (period/frequency)")
                 self.polarization_controller.driver.set_operation_period(1)
                 self.polarization_controller.driver.set_stepper_frequency(1000)
                 self.polarization_controller.driver.set_polarization_device(2) # Set HWP                
@@ -515,6 +516,7 @@ class AliceCPU:
         
         try:
             if not self.initialize_system():
+                self.logger.error("Failed to initialize the system")
                 return False
 
             # Setup network components
@@ -543,7 +545,10 @@ class AliceCPU:
                 success = self.run_post_processing()
             
             return success
-            
+        
+        except KeyboardInterrupt:
+            self.logger.warning("QKD protocol interrupted by user")
+            return False
         except Exception as e:
             self.logger.error(f"Error in complete QKD protocol: {e}")
             return False
@@ -651,10 +656,10 @@ class AliceCPU:
                 time_until_laser = target_laser_time - current_time
                 
                 if time_until_laser > 0:
-                    print(f"🔸 Pulse {pulse_id}: Waiting {time_until_laser:.3f}s to fire laser at scheduled time")
+                    print(f"🔸 Pulse {pulse_id}: --------------------------> WAITING {time_until_laser:.3f}s to fire laser at scheduled time")
                     time.sleep(time_until_laser)
                 elif time_until_laser < -0.001:  # More than 1ms late
-                    self.logger.warning(f" ⚠️ Pulse {pulse_id} is {-time_until_laser:.3f}s late! Polarization took too long.")
+                    self.logger.warning(f" ⚠️  Pulse {pulse_id}: --------------------------> {-time_until_laser:.3f}s LATE! Polarization took too long.")
                 
 
                 # Fire laser
@@ -688,7 +693,7 @@ class AliceCPU:
                 remaining_time = next_pulse_start - current_time
 
                 if remaining_time > 0:
-                    print(f"--------------------------> DEBUG: Waiting {remaining_time:.3f}s for next pulse period, Fired at {laser_start - start_time:.3f}, Target was {target_laser_time- start_time:.3f}")
+                    print(f"DEBUG: Waiting {remaining_time:.3f}s for next pulse period, Fired at {laser_start - start_time:.3f}, Target was {target_laser_time- start_time:.3f}")
                     self.logger.debug(f"Waiting {remaining_time:.3f}s for next pulse period, Fired at {laser_start - start_time:.3f}, Target was {target_laser_time- start_time:.3f}")
                     time.sleep(remaining_time)
                 elif remaining_time < -0.05:  # More than 50ms late
@@ -762,7 +767,10 @@ class AliceCPU:
             else:
                 self.logger.warning("Post-processing failed to generate a key")
                 return False
-                
+        
+        except KeyboardInterrupt:
+            self.logger.warning("Post-processing interrupted by user")
+            return False
         except Exception as e:
             self.logger.error(f"Error in post-processing: {e}")
             return False
@@ -773,6 +781,7 @@ class AliceCPU:
         try:
             self.laser_controller.shutdown()
             self.polarization_controller.shutdown()
+            self.polarization_controller = None
         except Exception as e:
             self.logger.error(f"Error shutting down hardware: {e}")
 
@@ -859,8 +868,8 @@ if __name__ == "__main__":
     config = AliceConfig(
         # Quantum transmission parameters
         num_pulses=100,
-        pulse_period_seconds=0.1,  # 1 second between pulses
-        use_hardware=False,  # Set to True for actual hardware
+        pulse_period_seconds=0.5,  # 1 second between pulses
+        use_hardware=True,  # Set to True for actual hardware
         com_port="COM4",  # Replace with actual COM port for polarization hardware
         laser_channel=8,  # Replace with actual digital channel for laser hardware
         mode=AliceMode.RANDOM_STREAM,
@@ -869,16 +878,16 @@ if __name__ == "__main__":
         # Network configuration
         use_mock_receiver=False,  # For testing without actual Bob
         # server_qch_host="localhost",
-        server_qch_host="127.0.0.1", 
+        server_qch_host="10.127.1.178", 
         server_qch_port=12345,
         
         # Classical communication
         # alice_ip="localhost",
-        alice_ip="127.0.0.1",
-        alice_port=54321,
+        alice_ip="10.127.1.178",
+        alice_port=65432,
         # bob_ip="localhost", 
-        bob_ip="127.0.0.1", 
-        bob_port=54322,
+        bob_ip="10.127.1.177", 
+        bob_port=65433,
         shared_secret_key="IzetXlgAnY4oye56",
         
         # Post-processing
