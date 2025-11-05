@@ -31,6 +31,13 @@ class BobMode(Enum):
     CONTINUOUS = "continuous"      # Continuously measure during pulse periods
     RANDOM_BASIS = "random_basis"  # Randomly select measurement basis (future use)
 
+class BobDetectorMap(Enum):
+    """Mapping the channels of the timetagger to the corresponding polarizations."""
+    HORIZONTAL = 4
+    VERTICAL = 3
+    DIAGONAL = 2
+    ANTI_DIAGONAL = 1
+
 
 # Default global values - matching Alice's structure
 NUM_THREADS = 1
@@ -511,7 +518,7 @@ class BobCPU:
                 binwidth_ps = result['binwidth_ps']
                 total_counts = result['counts_per_channel']
                 
-                self.logger.info(f"Continuous measurement completed with {result['n_bins']} time bins")
+                self.logger.info(f"Continuous measurement completed with {result['n_bins']} time bins. Shape of data: {len(timebin_data)} channels x {len(timebin_data[0]) if len(timebin_data) > 0 else 0} bins")
             else:
                 # Fallback to simple measurement
                 total_counts = self.timetagger_controller.measure_counts()
@@ -598,7 +605,7 @@ class BobCPU:
                     # print(f"DEBUG: Channel {channel} has {len(channel_bins)} bins")
                     for bin_idx in range(max(0, start_bin), min(len(channel_bins), end_bin)):
                         pulse_total += channel_bins[bin_idx]
-                        # print(f"DEBUG: Channel {channel}, bin {bin_idx}, count {channel_bins[bin_idx]}")
+                        print(f"DEBUG2: Channel {channel} at bin {bin_idx} (time={bin_idx * binwidth_ps / 1e12}s) has count {channel_bins[bin_idx]}")
                     
                     pulse_counts[channel] = int(pulse_total)
                     # print(f"DEBUG: Channel {channel}, pulse {pulse_id}, total counts: {pulse_total}")
@@ -608,7 +615,7 @@ class BobCPU:
             # Debug logging
             total_pulse_counts = sum(pulse_counts.values())
             if total_pulse_counts > 0:
-                print(f"    DEBUG: Pulse {pulse_id} counts: {pulse_counts} -> {total_pulse_counts} total from bins {start_bin}-{end_bin-1}")
+                print(f"    -> DEBUG: Pulse {pulse_id} counts: {pulse_counts} -> {total_pulse_counts} total from bins {start_bin}-{end_bin-1}")
                 self.logger.debug(f"Pulse {pulse_id} counts: {pulse_counts} -> {total_pulse_counts} total from bins {start_bin}-{end_bin-1}")
 
         except Exception as e:
@@ -706,30 +713,37 @@ class BobCPU:
                     detected_idxs.append(pulse_id)
 
                     # For BB84: channels 3,4 = Z basis, channels 1,2 = X basis
-                    z_counts = counts.get(3, 0) + counts.get(4, 0)
-                    x_counts = counts.get(1, 0) + counts.get(2, 0)
+                    z_counts = counts.get(BobDetectorMap.HORIZONTAL.value, 0) + counts.get(BobDetectorMap.VERTICAL.value, 0)
+                    x_counts = counts.get(BobDetectorMap.DIAGONAL.value, 0) + counts.get(BobDetectorMap.ANTI_DIAGONAL.value, 0)
 
                     if z_counts > x_counts:
                         # Z basis measurement
                         detected_bases.append(0)  # Z basis = 0
-                        # Bit value: channel 1 = bit 1, channel 2 = bit 0
-                        if counts.get(1, 0) > counts.get(2, 0):
-                            detected_bits.append(1)
-                        else:
+                        # Bit value: channel 4 = bit 0, channel 3 = bit 1
+                        if counts.get(BobDetectorMap.HORIZONTAL.value, 0) > counts.get(BobDetectorMap.VERTICAL.value, 0):
                             detected_bits.append(0)
+                        else:
+                            detected_bits.append(1)
                     else:
                         # X basis measurement  
                         detected_bases.append(1)  # X basis = 1
-                        # Bit value: channel 3 = bit 1, channel 4 = bit 0
-                        if counts.get(3, 0) > counts.get(4, 0):
-                            detected_bits.append(1)
-                        else:
+                        # Bit value: channel 2 = bit 0, channel 1 = bit 1
+                        if counts.get(BobDetectorMap.DIAGONAL.value, 0) > counts.get(BobDetectorMap.ANTI_DIAGONAL.value, 0):
                             detected_bits.append(0)
+                        else:
+                            detected_bits.append(1)
+
+                print(f"   ---> DEBUG2: Pulse ID {pulse_id}, Counts: {counts}, Total: {total_counts} -> Detected Bits: {detected_bits}, Bases: {detected_bases}, Idxs: {detected_idxs}")
 
             self.logger.debug(f"Converted {len(detected_bits)} detections from {len(self.results.pulse_counts)} pulses")
             self.logger.debug(f"Detection pulse IDs: {detected_idxs}")
             self.logger.debug(f"Detection bases: {detected_bases}")
             self.logger.debug(f"Detection bits: {detected_bits}")
+            print(f" ---> DEBUG: Converted {len(detected_bits)} detections from {len(self.results.pulse_counts)} pulses")
+            print(f" ---> DEBUG: Pulse counts data: {self.results.pulse_counts}")
+            print(f" ---> DEBUG: Detection pulse IDs: {detected_idxs}")
+            print(f" ---> DEBUG: Detection bases: {detected_bases}")
+            print(f" ---> DEBUG: Detection bits: {detected_bits}")
             return detected_bits, detected_bases, detected_idxs
             
         except Exception as e:
