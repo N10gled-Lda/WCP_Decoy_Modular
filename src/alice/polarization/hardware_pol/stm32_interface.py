@@ -25,6 +25,7 @@ class Command(IntEnum):
 
 class SubCommandConnection(IntEnum):
     SUB_COMMAND_CONNECTION_CONNECT = 0
+    SUB_COMMAND_CONNECTION_DISCONNECT = 1
 
 class SubCommandPolarization(IntEnum):
     SUB_COMMAND_POLARIZATION_NUMBERS = 0
@@ -209,6 +210,16 @@ class STM32Interface:
                         else:
                             # TODO
                             pass
+                    elif sub_cmd == SubCommandConnection.SUB_COMMAND_CONNECTION_DISCONNECT:
+                        if payload[0] == CommandStatus.COMMAND_VALID:
+                            self.connected = False
+                            print("Disconnected from STM32")
+                        elif payload[0] == CommandStatus.COMMAND_INVALID:
+                            # TODO
+                            pass
+                        else:
+                            # TODO
+                            pass
                 elif cmd == Command.COMMAND_POLARIZATION:
                     if sub_cmd == SubCommandPolarization.SUB_COMMAND_POLARIZATION_NUMBERS:
                         if payload[0] == CommandStatus.COMMAND_VALID:
@@ -283,10 +294,32 @@ class STM32Interface:
                             pass
 
     def connect(self):
+        
+        # Ensure serial port is open before connecting
+        if self.serial_port is None or not getattr(self.serial_port, 'is_open', False):
+            try:
+                self.serial_port = serial.Serial(port=self.serial_port.port, baudrate=self.serial_port.baudrate, timeout=1)
+            except Exception as e:
+                print(f"STM32 interface: Failed to open serial port: {e}")
+                return
+
         if not self.connected:
             msg = [START_BYTE, Command.COMMAND_CONNECTION.value, SubCommandConnection.SUB_COMMAND_CONNECTION_CONNECT.value, 0]
             msg.append(self.crc_calculate(bytearray(msg)))
             self.send_queue.put(bytearray(msg))
+
+    def disconnect(self):
+        # Mark disconnected and close the serial port to free access for other processes
+        self.connected = False
+        try:
+            if self.serial_port is not None and getattr(self.serial_port, 'is_open', False):
+                try:
+                    self.serial_port.close()
+                except Exception:
+                    pass
+        finally:
+            self.serial_port = None
+
 
     def send_cmd_polarization_numbers(self, numbers):
         if not self.connected:
