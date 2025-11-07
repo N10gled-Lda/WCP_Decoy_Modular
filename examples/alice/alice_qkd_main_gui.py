@@ -96,18 +96,18 @@ class AliceQKDGUI(ctk.CTk):
         
         # Network
         self.use_mock_receiver_var = ctk.BooleanVar(value=False)
-        self.server_qch_host_var = ctk.StringVar(value="127.0.0.1")
+        self.server_qch_host_var = ctk.StringVar(value="10.127.1.178")
         self.server_qch_port_var = ctk.StringVar(value="12345")
-        self.alice_ip_var = ctk.StringVar(value="127.0.0.1")
-        self.alice_port_var = ctk.StringVar(value="54321")
-        self.bob_ip_var = ctk.StringVar(value="127.0.0.1")
-        self.bob_port_var = ctk.StringVar(value="54322")
+        self.alice_ip_var = ctk.StringVar(value="10.127.1.178")
+        self.alice_port_var = ctk.StringVar(value="65432")
+        self.bob_ip_var = ctk.StringVar(value="10.127.1.177")
+        self.bob_port_var = ctk.StringVar(value="65433")
         self.shared_key_var = ctk.StringVar(value="IzetXlgAnY4oye56")
         
         # Post-processing
         self.enable_post_processing_var = ctk.BooleanVar(value=True)
         self.test_fraction_var = ctk.StringVar(value="0.25")
-        self.error_threshold_var = ctk.StringVar(value="0.11")
+        self.error_threshold_var = ctk.StringVar(value="0.6")
         self.pa_compression_var = ctk.StringVar(value="0.5")
         
         # Display
