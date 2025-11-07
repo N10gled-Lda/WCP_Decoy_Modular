@@ -82,11 +82,11 @@ class AliceQKDGUI(ctk.CTk):
     def setup_variables(self):
         """Initialize all GUI control variables"""
         # Quantum parameters
-        self.num_pulses_var = ctk.StringVar(value="100")
-        self.pulse_period_var = ctk.StringVar(value="0.1")
-        
+        self.num_pulses_var = ctk.StringVar(value="200")
+        self.pulse_period_var = ctk.StringVar(value="0.4")
+
         # Hardware
-        self.use_hardware_var = ctk.BooleanVar(value=False)
+        self.use_hardware_var = ctk.BooleanVar(value=True)
         self.com_port_var = ctk.StringVar(value="COM4")
         self.laser_channel_var = ctk.StringVar(value="8")
         

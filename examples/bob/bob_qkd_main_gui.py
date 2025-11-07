@@ -82,20 +82,20 @@ class BobQKDGUI(ctk.CTk):
     def setup_variables(self):
         """Initialize all GUI control variables"""
         # Detection parameters
-        self.num_pulses_var = ctk.StringVar(value="100")
-        self.pulse_period_var = ctk.StringVar(value="0.1")
+        self.num_pulses_var = ctk.StringVar(value="200")
+        self.pulse_period_var = ctk.StringVar(value="0.4")
         self.measurement_fraction_var = ctk.StringVar(value="0.8")
         
         # Hardware
-        self.use_hardware_var = ctk.BooleanVar(value=False)
+        self.use_hardware_var = ctk.BooleanVar(value=True)
         self.detector_channels_var = ctk.StringVar(value="1,2,3,4")
         self.dark_count_rate_var = ctk.StringVar(value="1.0")
         self.mode_var = ctk.StringVar(value="continuous")
         
         # Network
         self.use_mock_transmitter_var = ctk.BooleanVar(value=False)
-        self.server_qch_host_var = ctk.StringVar(value="10.127.1.178")
-        self.server_qch_port_var = ctk.StringVar(value="12345")
+        self.listen_qch_host_var = ctk.StringVar(value="10.127.1.178")
+        self.listen_qch_port_var = ctk.StringVar(value="12345")
         self.alice_ip_var = ctk.StringVar(value="10.127.1.178")
         self.alice_port_var = ctk.StringVar(value="65432")
         self.bob_ip_var = ctk.StringVar(value="10.127.1.177")
