@@ -258,10 +258,43 @@ class QKDAliceImplementation:
         alice_ccc = self.alice_process_base_sifting_classical_steps(self._role_alice, do_test, test_fraction, error_threshold,
                                                                     receive_queue, thread_id=thread_id, alice_bits=alice_bits, alice_bases=alice_bases, alice_qubytes=alice_bits)
         end_bs_time_tick = time.perf_counter()
+        self.alice_ccc = alice_ccc
 
         if __debug__:
             if alice_ccc.final_key != []:
+                print(f"Alice Bases and Bits ({(len(alice_ccc._bases))}):\n -> Bases: {alice_ccc._bases}\n -> Bits: {alice_ccc._bits}")
+                polarizations_format = []
+                for i in range(len(alice_ccc._bases)):
+                    if alice_ccc._bases[i] == 0:
+                        if alice_ccc._bits[i] == 0: polarizations_format.append('0º')
+                        else: polarizations_format.append('90º')
+                    else:
+                        if alice_ccc._bits[i] == 0: polarizations_format.append('45º')
+                        else: polarizations_format.append('135º')
+                print(f"Alice Polarizations format:\n -> {polarizations_format}")
+                print("----------------------------------------------------------------------")
+                print(f"Alice Detected bases and bits ({(len(alice_ccc._detected_bases))}):\n -> Bases: {alice_ccc._detected_bases}\n -> Bits: {alice_ccc._detected_bits}")
+                detected_polarizations_format = []
+                for i in range(len(alice_ccc._detected_bases)):
+                    if alice_ccc._detected_bases[i] == 0:
+                        if alice_ccc._detected_bits[i] == 0: detected_polarizations_format.append('0º')
+                        else: detected_polarizations_format.append('90º')
+                    else:
+                        if alice_ccc._detected_bits[i] == 0: detected_polarizations_format.append('45º')
+                        else: detected_polarizations_format.append('135º')
+                print(f"Alice Dected polarizations format:\n -> {detected_polarizations_format}")
+                print("----------------------------------------------------------------------")
+                print(f"Alice Matched Bits ({(len(alice_ccc._common_bits))}):\n{alice_ccc._common_bits}")
+                matched_polarizations_format = []
+                for i in range(len(alice_ccc._common_bits)):
+                    if alice_ccc._common_bits[i] == 0: matched_polarizations_format.append('0º')
+                    elif alice_ccc._common_bits[i] == 1: matched_polarizations_format.append('90º')
+                print(f"Alice Matched polarizations format:\n -> {matched_polarizations_format}")
+                print("----------------------------------------------------------------------")
+                print("----------------------------------------------------------------------")
                 print(f"Alice Base Sifted Key Len ({(len(alice_ccc.final_key))}):\n{alice_ccc.final_key}")
+                print("----------------------------------------------------------------------")
+                print("----------------------------------------------------------------------")
 
         if alice_ccc.failed_percentage > error_threshold and alice_ccc.final_key == []:
             print(f"Thread {thread_id} - Key Rejected due to High QBER.")

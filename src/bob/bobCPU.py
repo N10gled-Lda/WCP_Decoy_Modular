@@ -75,7 +75,7 @@ class BobConfig:
     # Hardware parameters
     use_hardware: bool = False
     detector_channels: List[int] = field(default_factory=lambda: [1, 2, 3, 4])
-    dark_count_rate: float = 100.0  # For simulator
+    dark_count_rate: float = 1.0  # For simulator
     mode: BobMode = BobMode.CONTINUOUS
     
     # Network configuration for quantum channel - matches Alice
@@ -200,7 +200,7 @@ class BobCPU:
         if self.use_hardware:
             timetagger_driver = SimpleTimeTaggerHardware(self.detector_channels)
         else:
-            timetagger_driver = SimpleTimeTaggerSimulator(self.detector_channels, self.dark_count_rate)
+            timetagger_driver = SimpleTimeTaggerSimulator(self.detector_channels, self.dark_count_rate, 1, 0.6)
 
         self.timetagger_controller = SimpleTimeTaggerController(timetagger_driver)
         
@@ -605,7 +605,8 @@ class BobCPU:
                     # print(f"DEBUG: Channel {channel} has {len(channel_bins)} bins")
                     for bin_idx in range(max(0, start_bin), min(len(channel_bins), end_bin)):
                         pulse_total += channel_bins[bin_idx]
-                        print(f"DEBUG2: Channel {channel} at bin {bin_idx} (time={bin_idx * binwidth_ps / 1e12}s) has count {channel_bins[bin_idx]}")
+                        if channel_bins[bin_idx] > 0:
+                            print(f"      -> DEBUG2: Channel {channel} at bin {bin_idx} (time={bin_idx * binwidth_ps / 1e12}s) has count {channel_bins[bin_idx]}")
                     
                     pulse_counts[channel] = int(pulse_total)
                     # print(f"DEBUG: Channel {channel}, pulse {pulse_id}, total counts: {pulse_total}")
@@ -669,11 +670,13 @@ class BobCPU:
             )
 
             self.classical_channel_participant_for_pp.bob_join_threads()
+            before_pa_key = self.classical_channel_participant_for_pp.get_corrected_key()
             final_key = self.classical_channel_participant_for_pp.get_secured_key()
             qber = self.classical_channel_participant_for_pp.get_qber()
 
             if final_key is not None:
                 self.logger.info(f"Post-processing completed. Final key generated successfully")
+                self.logger.info(f" -----> KEY BEFORE PA: {before_pa_key} <----- ")
                 self.logger.info(f" -----> FINAL KEY: {final_key} <----- ")
                 self.logger.info(f" -----> QBER: {qber} <----- ")
 
@@ -708,6 +711,18 @@ class BobCPU:
                 # Simple detection logic: if any counts detected, determine bit value
                 total_counts = sum(counts.values())
                 
+                # Check if only one channel has counts instead of random choice
+                channels_with_counts = [(ch, cnt) for ch, cnt in counts.items() if cnt > 0]
+                
+                # If we have exactly one channel with counts, use that for detection
+                if len(channels_with_counts) == 1:
+                    self.logger.debug(f"Pulse {pulse_id}: Single-channel detection on channel {channels_with_counts[0][0]}")
+                else:
+                    # Skip pulses with multiple detections or no detections
+                    self.logger.debug(f"Pulse {pulse_id}: Multiple ({len(channels_with_counts)}) or zero detections - skipping")
+                    continue
+
+
                 if total_counts > 0:
                     # Use the actual pulse_id from results
                     detected_idxs.append(pulse_id)
@@ -733,17 +748,30 @@ class BobCPU:
                         else:
                             detected_bits.append(1)
 
-                print(f"   ---> DEBUG2: Pulse ID {pulse_id}, Counts: {counts}, Total: {total_counts} -> Detected Bits: {detected_bits}, Bases: {detected_bases}, Idxs: {detected_idxs}")
+                    # Only print detailed debug info when a detection was recorded to avoid indexing empty lists
+                    print(f"   ---> DEBUG2: Pulse ID {pulse_id}, Counts: {counts}, Total: {total_counts} -> Detected Bit: {detected_bits[-1]}, Base: {detected_bases[-1]}, Idx: {detected_idxs[-1]}")
+                else:
+                    # Optional debug for no-detection case
+                    print(f"   ---> DEBUG2: Pulse ID {pulse_id}, Counts: {counts}, Total: {total_counts} -> No detection")
 
             self.logger.debug(f"Converted {len(detected_bits)} detections from {len(self.results.pulse_counts)} pulses")
             self.logger.debug(f"Detection pulse IDs: {detected_idxs}")
             self.logger.debug(f"Detection bases: {detected_bases}")
             self.logger.debug(f"Detection bits: {detected_bits}")
             print(f" ---> DEBUG: Converted {len(detected_bits)} detections from {len(self.results.pulse_counts)} pulses")
-            print(f" ---> DEBUG: Pulse counts data: {self.results.pulse_counts}")
+            # print(f" ---> DEBUG: Pulse counts data: {self.results.pulse_counts}")
             print(f" ---> DEBUG: Detection pulse IDs: {detected_idxs}")
             print(f" ---> DEBUG: Detection bases: {detected_bases}")
             print(f" ---> DEBUG: Detection bits: {detected_bits}")
+            detected_polarizations_format = []
+            for i in range(len(detected_bases)):
+                if detected_bases[i] == 0:
+                    if detected_bits[i] == 0: detected_polarizations_format.append('0º')
+                    else: detected_polarizations_format.append('90º')
+                else:
+                    if detected_bits[i] == 0: detected_polarizations_format.append('45º')
+                    else: detected_polarizations_format.append('135º')
+            print(f" ---> DEBUG: Detected polarizations:\n -> {detected_polarizations_format}")
             return detected_bits, detected_bases, detected_idxs
             
         except Exception as e:
@@ -827,7 +855,7 @@ if __name__ == "__main__":
     # Example configuration for complete QKD protocol
     config = BobConfig(
         # Detection parameters
-        num_expected_pulses=100,
+        num_expected_pulses=600,
         pulse_period_seconds=0.5,
         measurement_fraction=0.8,
         loss_rate=0.0,
@@ -875,5 +903,7 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Error: {e}")
     finally:
+        print("DEBUG: Main completed. Waiting 5 seconds before closing server for alice first.")
+        time.sleep(5) # Wait to ensure all threads close properly
         bob_cpu.shutdown_components()
         bob_cpu.cleanup_network_resources()

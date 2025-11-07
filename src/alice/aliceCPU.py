@@ -281,9 +281,11 @@ class AliceCPU:
             if (self.use_hardware):
                 self.logger.debug("Setting polarization hardware parameters (period/frequency)")
                 self.polarization_controller.driver.set_operation_period(1)
+                time.sleep(0.5)  # Wait for settings to take effect
                 self.polarization_controller.driver.set_stepper_frequency(1000)
-                self.polarization_controller.driver.set_polarization_device(2) # Set HWP                
-                self.laser_controller.set_pulse_parameters(duty_cycle=0.1, frequency=1000)
+                time.sleep(0.5)  # Wait for settings to take effect
+                self.polarization_controller.driver.set_polarization_device(2)              
+                self.laser_controller.set_pulse_parameters(duty_cycle=0.1, frequency=100)
         except Exception as e:
             self.logger.error(f"Error setting polarization hardware parameters (period/frequency): {e}")
             self.results.errors.append(f"Error setting polarization hardware parameters (period/frequency): {e}")
@@ -714,6 +716,13 @@ class AliceCPU:
         self.results.total_runtime_seconds = time.time() - start_time
         if self.results.total_runtime_seconds > 0:
             self.results.average_pulse_rate_hz = self.results.pulses_sent / self.results.total_runtime_seconds
+
+        # Set polarization to 0 degrees at end in case of connection loss and reset needed
+        try:
+            self.logger.info("Setting polarization to 0º at end of transmission")
+            self.polarization_controller.set_polarization_manually(Basis.Z, Bit(0))
+        except Exception as e:
+            self.logger.error(f"Error resetting polarization to 0º at end: {e}")
  
     def _get_basis_and_bit(self, pulse_id: int) -> Tuple[Basis, Bit]:
         """Get basis and bit for the given pulse (unified method)."""
@@ -756,11 +765,13 @@ class AliceCPU:
             
             # Wait for all threads to finish
             self.classical_channel_participant_for_pp.alice_join_threads()
+            before_pa_key = self.classical_channel_participant_for_pp.get_corrected_key()
             final_key = self.classical_channel_participant_for_pp.get_secured_key()
             qber = self.classical_channel_participant_for_pp.get_qber()
 
             if final_key is not None:
                 self.logger.info(f"Post-processing completed. Final key length: {len(final_key)}")
+                self.logger.info(f" -----> KEY BEFORE PA: {before_pa_key} <----- ")
                 self.logger.info(f" -----> FINAL KEY: {final_key} <----- ")
                 self.logger.info(f" -----> QBER: {qber:.2f}% <----- ")
                 return True
@@ -867,7 +878,7 @@ if __name__ == "__main__":
     # Example configuration for complete QKD protocol
     config = AliceConfig(
         # Quantum transmission parameters
-        num_pulses=100,
+        num_pulses=600,
         pulse_period_seconds=0.5,  # 1 second between pulses
         use_hardware=True,  # Set to True for actual hardware
         com_port="COM4",  # Replace with actual COM port for polarization hardware
