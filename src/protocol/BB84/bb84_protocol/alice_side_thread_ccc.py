@@ -633,6 +633,9 @@ class AliceThread():
 
         # Getting the common bits from the common indices and the detected bits
         self._common_bits = [self._detected_bits[i] for i in self._common_indices]
+
+        print(f"Common bits: {self._common_bits}")
+        print(f"Common indices: {self._common_indices}")
         logger.debug2(f"Thread id: {self._thread_id}: Alice Bits before common key indices: {self._detected_bits}")
         logger.debug(f"Thread id: {self._thread_id}: Alice Bits for the common key indices: {self._common_bits}")
         return self._common_indices

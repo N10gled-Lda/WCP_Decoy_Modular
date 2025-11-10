@@ -460,6 +460,7 @@ class BobThread():
         self._detected_bits = []
         self._detected_qubits_bytes = [] # Not needed
         self._length_detected_key = 0 # Not needed
+        self._ambiguous_detections_map = {}  # Maps detection index to list of channels with counts
         # self._common_indices = [] 
         # self._common_bits = []
         # self._common_test_indices = []
@@ -481,31 +482,38 @@ class BobThread():
         self.number_messages_received = 0
 
 
-    def set_bits_bases_qubits_idxs(self, detected_bits: list[int], detected_bases: list[int], detected_qubits_bytes: list[int], detected_idxs: list[int], average_time_bin: float):
-        """Set the detected bits, detected bases, detected qubits and detected indices for Bob."""
+    def set_bits_bases_qubits_idxs(self, detected_bits: list[int], detected_bases: list[int], detected_qubits_bytes: list[int], detected_idxs: list[int], average_time_bin: float, ambiguous_detections_map: dict = None):
+        """Set the detected bits, detected bases, detected qubits and detected indices for Bob.
+        
+        Args:
+            ambiguous_detections_map: Dict mapping detection indices to lists of channels with counts
+                                     for multi-channel detections (basis=-1, bit=-1)
+        """
         if len(detected_bits) != len(detected_bases) or len(detected_bits) != len(detected_qubits_bytes) or len(detected_bits) != len(detected_idxs):
             logger.error("Bob: Detected bits, bases, qubits and indices have different lengths.")
             raise ValueError("Detected bits, bases, qubits and indices have different lengths.")
         if detected_bits:
-            if not all(bit in [0, 1] for bit in detected_bits):
-                logger.error("Bob: Detected bits are not binary.")
-                raise ValueError("Detected bits are not binary.")
+            # Allow -1 for ambiguous detections
+            if not all(bit in [0, 1, -1] for bit in detected_bits):
+                logger.error("Bob: Detected bits are not binary or ambiguous (-1).")
+                raise ValueError("Detected bits are not binary or ambiguous (-1).")
             self._detected_bits = detected_bits
         else:
             logger.error("Bob: Detected bits are empty.")
             raise ValueError("Detected bits are empty.")
         if detected_bases:
-            if not all(base in [0, 1] for base in detected_bases):
-                logger.error("Bob: Detected bases are not binary.")
-                raise ValueError("Detected bases are not binary.")
+            # Allow -1 for ambiguous detections
+            if not all(base in [0, 1, -1] for base in detected_bases):
+                logger.error("Bob: Detected bases are not binary or ambiguous (-1).")
+                raise ValueError("Detected bases are not binary or ambiguous (-1).")
             self._detected_bases = detected_bases
         else:
             logger.error("Bob: Detected bases are empty.")
             raise ValueError("Detected bases are empty.")
         if detected_qubits_bytes:
-            if not all(qubit in [0, 1, 2, 3] for qubit in detected_qubits_bytes):
-                logger.error("Bob: Detected qubits are not binary.")
-                raise ValueError("Detected qubits are not binary.")
+            if not all(qubit in [0, 1, 2, 3, -1] for qubit in detected_qubits_bytes):
+                logger.error("Bob: Detected qubits are not valid (0-3 or -1).")
+                raise ValueError("Detected qubits are not valid (0-3 or -1).")
             self._detected_qubits_bytes = detected_qubits_bytes
         else:
             logger.error("Bob: Detected qubits are empty.")
@@ -523,6 +531,11 @@ class BobThread():
         else:
             logger.error("Bob: Average time bin is empty.")
             raise ValueError("Average time bin is empty.")
+        
+        # Store ambiguous detections map
+        self._ambiguous_detections_map = ambiguous_detections_map if ambiguous_detections_map is not None else {}
+        if self._ambiguous_detections_map:
+            logger.info(f"Bob: Received {len(self._ambiguous_detections_map)} ambiguous detections to resolve during basis sifting")
 
     def run_bob_thread(self):
         """Run Bob's part for a single thread to obtain part of the final key."""
@@ -591,12 +604,77 @@ class BobThread():
         return self._other_detected_bases
     
     def match_bases(self):
-        """Match alice basis in time_bins with bobs bases. Key shifting."""
+        """Match alice basis in time_bins with bobs bases. Key shifting.
+        
+        This method now also resolves ambiguous detections (where multiple channels had counts).
+        For ambiguous detections (basis=-1, bit=-1), we check if Alice's basis matches one of
+        the detected channels. If yes, we determine the correct bit based on the channel.
+        """
         logger.info(f"Thread id: {self._thread_id}: Comparing bases and filtering bits...")
         logger.debug3(f"Thread id: {self._thread_id}: Alice bases in time bins: {self._other_detected_bases}")
         logger.debug3(f"Thread id: {self._thread_id}: Bob bases in time bins: {self._detected_bases}")
-        self._common_indices = [i for i in range(len(self._other_detected_bases)) if self._other_detected_bases[i] == self._detected_bases[i]]
+        
+        # Channel to basis/bit mapping (from BobDetectorMap in bobCPU.py):
+        # Channel 4 (HORIZONTAL): basis=0, bit=0
+        # Channel 3 (VERTICAL): basis=0, bit=1
+        # Channel 2 (DIAGONAL): basis=1, bit=1
+        # Channel 1 (ANTI_DIAGONAL): basis=1, bit=0
+        channel_to_basis_bit = {
+            4: (0, 0),  # HORIZONTAL
+            3: (0, 1),  # VERTICAL
+            2: (1, 0),  # DIAGONAL
+            1: (1, 1),  # ANTI_DIAGONAL
+        }
+        
+        # Resolve ambiguous detections first
+        ambiguous_resolved = 0
+        ambiguous_discarded = 0
+
+        print(f"Size of ambiguous detections map: {len(self._ambiguous_detections_map)}")
+        print(f"Size of _other_detected_bases: {len(self._other_detected_bases)}")
+        for detection_idx, channels_with_counts in self._ambiguous_detections_map.items():
+            print(f"Resolving ambiguous detection at index {detection_idx} with channels {channels_with_counts}")
+            alice_basis = self._other_detected_bases[detection_idx]
+            
+            # Check which of the detected channels match Alice's basis
+            matching_channels = []
+            for channel in channels_with_counts:
+                if channel in channel_to_basis_bit:
+                    ch_basis, ch_bit = channel_to_basis_bit[channel]
+                    if ch_basis == alice_basis:
+                        matching_channels.append((channel, ch_bit))
+            
+            # If exactly one channel matches Alice's basis, resolve the ambiguity
+            if len(matching_channels) == 1:
+                channel, bit = matching_channels[0]
+                # Update Bob's detection with the resolved basis and bit
+                self._detected_bases[detection_idx] = alice_basis
+                self._detected_bits[detection_idx] = bit
+                ambiguous_resolved += 1
+                logger.debug(f"Thread id: {self._thread_id}: Resolved ambiguous detection {detection_idx}: "
+                           f"channels {channels_with_counts} -> Alice basis {alice_basis}, bit {bit} (channel {channel})")
+                print(f"Thread id: {self._thread_id}: Resolved ambiguous detection {detection_idx}: "
+                           f"channels {channels_with_counts} -> Alice basis {alice_basis}, bit {bit} (channel {channel})")
+            else:
+                # Either no match or multiple matches - keep as ambiguous (will be discarded)
+                ambiguous_discarded += 1
+                logger.debug(f"Thread id: {self._thread_id}: Discarded ambiguous detection {detection_idx}: "
+                           f"channels {channels_with_counts}, Alice basis {alice_basis}, "
+                           f"matching channels: {len(matching_channels)}")
+                print(f"Thread id: {self._thread_id}: Discarded ambiguous detection {detection_idx}: "
+                           f"channels {channels_with_counts}, Alice basis {alice_basis}, "
+                           f"matching channels: {len(matching_channels)}")
+        
+        if ambiguous_resolved > 0 or ambiguous_discarded > 0:
+            logger.info(f"Thread id: {self._thread_id}: Ambiguous detections - resolved: {ambiguous_resolved}, discarded: {ambiguous_discarded}")
+        
+        # Now proceed with normal basis matching (excluding remaining ambiguous detections with basis=-1)
+        self._common_indices = [i for i in range(len(self._other_detected_bases)) 
+                               if self._other_detected_bases[i] == self._detected_bases[i] 
+                               and self._detected_bases[i] != -1]  # Exclude unresolved ambiguous
         self._common_bits = [self._detected_bits[i] for i in self._common_indices]
+        print(f"Common indices: {self._common_indices}")
+        print(f"Common bits: {self._common_bits}")
         logger.info(f"Thread id: {self._thread_id}: Key length of common bases: {len(self._common_bits)}")
         return self._common_bits
 
@@ -618,6 +696,8 @@ class BobThread():
         self.send_data([self._common_test_indices, self._common_test_bits])
         logger.info(f"Thread id: {self._thread_id}: Sent {len(self._common_test_bits)} test bits.")
         logger.debug2(f"Thread id: {self._thread_id}: Common key fraction indices sent: {self._common_test_indices}")
+        print(f"Common test indices sent: {self._common_test_indices}")
+        print(f"Common test bits sent: {self._common_test_bits}")
         return self._common_test_bits
     
     def receive_test_result(self):

@@ -39,6 +39,7 @@ class QKDBobImplementation:
         self._detected_qubits_bytes = None
         self._detected_idxs = None
         self._average_time_bin = None
+        self._ambiguous_detections_map = {}  # For multi-channel detections
 
         self._queues_list = []
         self._role_bob = None
@@ -67,11 +68,15 @@ class QKDBobImplementation:
             role.clean()
 
     def set_bob_detected_quantum_variables(self, detected_bits, detected_bases, detected_qubits_bytes, detected_idxs
-                                           , average_time_bin):
+                                           , average_time_bin, ambiguous_detections_map=None):
         """
         Set up the Bob detected bits; bases; detected qubits bytes; indexes and time bin.
         Used to make classical process easily achievable changing from real implementation and a simulation of
         quantum channel.
+        
+        Args:
+            ambiguous_detections_map: Optional dict mapping detection indices to lists of channels with counts
+                                     for multi-channel detections that need basis resolution
         """
 
         self._detected_bits = detected_bits
@@ -79,6 +84,7 @@ class QKDBobImplementation:
         self._detected_qubits_bytes = detected_qubits_bytes
         self._detected_idxs = detected_idxs
         self._average_time_bin = average_time_bin
+        self._ambiguous_detections_map = ambiguous_detections_map if ambiguous_detections_map is not None else {}
 
     def start_read_communication_channel(self):
         reader_thread = threading.Thread(target=self.read, args=[self._role_bob, self._queues_list], daemon=True)
@@ -156,10 +162,11 @@ class QKDBobImplementation:
             else detected_bits
         var_detected_idxs = self._detected_idxs if detected_idxs is None else detected_idxs
         var_average_time_bin = self._average_time_bin if average_time_bin is None else average_time_bin
+        var_ambiguous_detections_map = self._ambiguous_detections_map  # Always use the stored map
 
         bob_ccc.set_bits_bases_qubits_idxs(var_detected_bits, var_detected_bases,
                                            var_detected_qubits_bytes, var_detected_idxs,
-                                           var_average_time_bin)
+                                           var_average_time_bin, var_ambiguous_detections_map)
         bob_ccc.run_bob_thread()
 
         # This is performed to stop execution in case key is rejected due to High QBER

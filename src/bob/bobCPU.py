@@ -639,14 +639,14 @@ class BobCPU:
         
         try:
             # Convert detection data to format expected by post-processing
-            # We need to convert our count data to detected bits and bases
-            detected_bits, detected_bases, detected_idxs = self._convert_counts_to_detection_data()
+            # Now also receives ambiguous_detections_map
+            detected_bits, detected_bases, detected_idxs, ambiguous_detections_map = self._convert_counts_to_detection_data()
             
             if not detected_bits:
                 self.logger.warning("No detection data available for post-processing")
                 return False
             
-            self.logger.info(f"Starting post-processing with {len(detected_bits)} detected bits")
+            self.logger.info(f"Starting post-processing with {len(detected_bits)} detected bits ({len(ambiguous_detections_map)} ambiguous)")
             
             # Calculate average time bin from pulse period (in nanoseconds like original BB84)
             # Original protocol uses nanoseconds, our pulse_period is in seconds
@@ -659,7 +659,8 @@ class BobCPU:
                 detected_bases=detected_bases, 
                 detected_qubits_bytes=detected_bits,  # Same as bits for now
                 detected_idxs=detected_idxs,
-                average_time_bin=average_time_bin_ns
+                average_time_bin=average_time_bin_ns,
+                ambiguous_detections_map=ambiguous_detections_map  # Pass the ambiguous detections
             )
             
             # Run post-processing using Bob's classical process
@@ -694,12 +695,18 @@ class BobCPU:
         Convert TimeTagger count data to detection bits, bases, and indices.
         This simulates the detection process for post-processing.
         
+        For multi-channel detections, we mark them with basis=-1 and bit=-1,
+        and store the channels that had counts. These will be resolved later
+        during basis sifting after receiving Alice's bases.
+        
         Returns:
-            tuple: (detected_bits, detected_bases, detected_idxs)
+            tuple: (detected_bits, detected_bases, detected_idxs, ambiguous_detections_map)
+            where ambiguous_detections_map is a dict: {detection_index: [channels_with_counts]}
         """
         detected_bits = []
         detected_bases = []
         detected_idxs = []
+        ambiguous_detections_map = {}  # Maps detection index to list of channels with counts
         
         try:
             # Use actual pulse IDs and timestamps from results instead of enumerate
@@ -711,72 +718,90 @@ class BobCPU:
                 # Simple detection logic: if any counts detected, determine bit value
                 total_counts = sum(counts.values())
                 
-                # Check if only one channel has counts instead of random choice
-                channels_with_counts = [(ch, cnt) for ch, cnt in counts.items() if cnt > 0]
+                if total_counts == 0:
+                    # No detection, skip
+                    print(f"   ---> DEBUG2: Pulse ID {pulse_id}, Counts: {counts}, Total: {total_counts} -> No detection")
+                    continue
+                
+                # Get channels that have counts
+                channels_with_counts = [ch for ch, cnt in counts.items() if cnt > 0]
+                
+                # Use the actual pulse_id from results
+                detected_idxs.append(pulse_id)
+                detection_index = len(detected_idxs) - 1  # Index in the detected arrays
                 
                 # If we have exactly one channel with counts, use that for detection
                 if len(channels_with_counts) == 1:
-                    self.logger.debug(f"Pulse {pulse_id}: Single-channel detection on channel {channels_with_counts[0][0]}")
-                else:
-                    # Skip pulses with multiple detections or no detections
-                    self.logger.debug(f"Pulse {pulse_id}: Multiple ({len(channels_with_counts)}) or zero detections - skipping")
-                    continue
-
-
-                if total_counts > 0:
-                    # Use the actual pulse_id from results
-                    detected_idxs.append(pulse_id)
-
-                    # For BB84: channels 3,4 = Z basis, channels 1,2 = X basis
-                    z_counts = counts.get(BobDetectorMap.HORIZONTAL.value, 0) + counts.get(BobDetectorMap.VERTICAL.value, 0)
-                    x_counts = counts.get(BobDetectorMap.DIAGONAL.value, 0) + counts.get(BobDetectorMap.ANTI_DIAGONAL.value, 0)
-
-                    if z_counts > x_counts:
-                        # Z basis measurement
-                        detected_bases.append(0)  # Z basis = 0
-                        # Bit value: channel 4 = bit 0, channel 3 = bit 1
-                        if counts.get(BobDetectorMap.HORIZONTAL.value, 0) > counts.get(BobDetectorMap.VERTICAL.value, 0):
-                            detected_bits.append(0)
-                        else:
-                            detected_bits.append(1)
+                    channel = channels_with_counts[0]
+                    self.logger.debug(f"Pulse {pulse_id}: Single-channel detection on channel {channel}")
+                    
+                    # Map channel to basis and bit
+                    # Channel 4 (HORIZONTAL): basis=0, bit=0
+                    # Channel 3 (VERTICAL): basis=0, bit=1
+                    # Channel 2 (DIAGONAL): basis=1, bit=1  
+                    # Channel 1 (ANTI_DIAGONAL): basis=1, bit=0
+                    if channel == BobDetectorMap.HORIZONTAL.value:
+                        detected_bases.append(0)
+                        detected_bits.append(0)
+                    elif channel == BobDetectorMap.VERTICAL.value:
+                        detected_bases.append(0)
+                        detected_bits.append(1)
+                    elif channel == BobDetectorMap.DIAGONAL.value:
+                        detected_bases.append(1)
+                        detected_bits.append(0)
+                    elif channel == BobDetectorMap.ANTI_DIAGONAL.value:
+                        detected_bases.append(1)
+                        detected_bits.append(1)
                     else:
-                        # X basis measurement  
-                        detected_bases.append(1)  # X basis = 1
-                        # Bit value: channel 2 = bit 0, channel 1 = bit 1
-                        if counts.get(BobDetectorMap.DIAGONAL.value, 0) > counts.get(BobDetectorMap.ANTI_DIAGONAL.value, 0):
-                            detected_bits.append(0)
-                        else:
-                            detected_bits.append(1)
-
-                    # Only print detailed debug info when a detection was recorded to avoid indexing empty lists
-                    print(f"   ---> DEBUG2: Pulse ID {pulse_id}, Counts: {counts}, Total: {total_counts} -> Detected Bit: {detected_bits[-1]}, Base: {detected_bases[-1]}, Idx: {detected_idxs[-1]}")
+                        # If prefered to ignore unknown channels, uncomment below
+                        # continue
+                        # Unknown channel, mark as ambiguous
+                        self.logger.warning(f"Pulse {pulse_id}: Unknown channel {channel}")
+                        detected_bases.append(-1)
+                        detected_bits.append(-1)
+                        ambiguous_detections_map[detection_index] = channels_with_counts
+                    
+                    print(f"   ---> DEBUG2: Pulse ID {pulse_id}, Channel {channel}, Counts: {counts}, Total: {total_counts} -> Detected Bit: {detected_bits[-1]}, Base: {detected_bases[-1]}, Idx: {detected_idxs[-1]}")
                 else:
-                    # Optional debug for no-detection case
-                    print(f"   ---> DEBUG2: Pulse ID {pulse_id}, Counts: {counts}, Total: {total_counts} -> No detection")
+                    # # If prefered to ignore multi-channel detections, uncomment below
+                    # continue
+                    # Multiple channels with counts - mark as ambiguous for later resolution
+                    self.logger.debug(f"Pulse {pulse_id}: Multi-channel detection on channels {channels_with_counts} - marking as ambiguous")
+                    print(f"Pulse {pulse_id}: Multi-channel detection on channels {channels_with_counts} - marking as ambiguous")
+                    detected_bases.append(-1)  # Special marker for ambiguous basis
+                    detected_bits.append(-1)   # Special marker for ambiguous bit
+                    ambiguous_detections_map[detection_index] = channels_with_counts
+                    
+                    print(f"   ---> DEBUG2: Pulse ID {pulse_id}, Channels {channels_with_counts}, Counts: {counts}, Total: {total_counts} -> AMBIGUOUS detection, Idx: {detected_idxs[-1]}")
 
             self.logger.debug(f"Converted {len(detected_bits)} detections from {len(self.results.pulse_counts)} pulses")
             self.logger.debug(f"Detection pulse IDs: {detected_idxs}")
             self.logger.debug(f"Detection bases: {detected_bases}")
             self.logger.debug(f"Detection bits: {detected_bits}")
+            self.logger.debug(f"Ambiguous detections: {len(ambiguous_detections_map)}")
             print(f" ---> DEBUG: Converted {len(detected_bits)} detections from {len(self.results.pulse_counts)} pulses")
-            # print(f" ---> DEBUG: Pulse counts data: {self.results.pulse_counts}")
             print(f" ---> DEBUG: Detection pulse IDs: {detected_idxs}")
             print(f" ---> DEBUG: Detection bases: {detected_bases}")
             print(f" ---> DEBUG: Detection bits: {detected_bits}")
+            print(f" ---> DEBUG: Ambiguous detections (multi-channel): {len(ambiguous_detections_map)} - {ambiguous_detections_map}")
+            
             detected_polarizations_format = []
             for i in range(len(detected_bases)):
-                if detected_bases[i] == 0:
+                if detected_bases[i] == -1:
+                    detected_polarizations_format.append('AMBIGUOUS')
+                elif detected_bases[i] == 0:
                     if detected_bits[i] == 0: detected_polarizations_format.append('0º')
                     else: detected_polarizations_format.append('90º')
                 else:
                     if detected_bits[i] == 0: detected_polarizations_format.append('45º')
                     else: detected_polarizations_format.append('135º')
             print(f" ---> DEBUG: Detected polarizations:\n -> {detected_polarizations_format}")
-            return detected_bits, detected_bases, detected_idxs
+            
+            return detected_bits, detected_bases, detected_idxs, ambiguous_detections_map
             
         except Exception as e:
             self.logger.error(f"Error converting counts to detection data: {e}")
-            return [], [], []
+            return [], [], [], {}
 
     def shutdown_components(self) -> None:
         """Shutdown components."""
