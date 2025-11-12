@@ -634,8 +634,8 @@ class AliceThread():
         # Getting the common bits from the common indices and the detected bits
         self._common_bits = [self._detected_bits[i] for i in self._common_indices]
 
-        print(f"Common bits: {self._common_bits}")
-        print(f"Common indices: {self._common_indices}")
+        # print(f"Common bits: {self._common_bits}")
+        # print(f"Common indices: {self._common_indices}")
         logger.debug2(f"Thread id: {self._thread_id}: Alice Bits before common key indices: {self._detected_bits}")
         logger.debug(f"Thread id: {self._thread_id}: Alice Bits for the common key indices: {self._common_bits}")
         return self._common_indices
@@ -663,6 +663,16 @@ class AliceThread():
         
         logger.debug(f"Thread id: {self._thread_id}:Confirming test bits, if Bob's bits match Alice's bits...")
         self._bits_check = [self._alice_test_bits[i] == self._bob_test_bits[i] for i in range(len(self._bob_test_bits))]
+        # Saving the test bits and bases and indices that did not match
+        self._mismatched_bits = []
+        for i in range(len(self._bits_check)):
+            if not self._bits_check[i]:
+                logger.warning(f"Thread id: {self._thread_id}: Bit mismatch at index {self._common_test_indices[i]}: Alice's bit = {self._alice_test_bits[i]}, Bob's bit = {self._bob_test_bits[i]}, Base = {self._detected_bases[self._common_test_indices[i]]}")
+                # Save the test indices, alice bits and corresponding alice bases and bob bits that did not match
+                self._mismatched_bits.append((self._common_test_indices[i], self._alice_test_bits[i], self._bob_test_bits[i], self._detected_bases[self._common_test_indices[i]]))
+        
+        print(f"Mismatched bits: {self._mismatched_bits}")
+
         logger.debug("Test bits check: %s", self._bits_check)
         self.failed_percentage = self._bits_check.count(False) / len(self._bits_check) * 100
         self.test_success_bool = self.failed_percentage/100 < self._error_threshold

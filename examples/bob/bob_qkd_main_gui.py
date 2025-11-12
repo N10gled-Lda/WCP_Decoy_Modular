@@ -598,7 +598,7 @@ class BobQKDGUI(ctk.CTk):
         if hasattr(self.bob_cpu, 'classical_channel_participant_for_pp') and self.bob_cpu.classical_channel_participant_for_pp:
             qkd_impl = self.bob_cpu.classical_channel_participant_for_pp
             if hasattr(qkd_impl, 'get_qber'):
-                text += f"  QBER: {qkd_impl.get_qber():.4f} ({qkd_impl.get_qber()*100:.2f}%)\n\n"
+                text += f"  QBER: {qkd_impl.get_qber():.2f}%)\n\n"
             else:
                 text += "  Not calculated\n\n"
         else:

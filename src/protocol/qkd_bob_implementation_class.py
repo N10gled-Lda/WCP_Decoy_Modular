@@ -231,11 +231,11 @@ class QKDBobImplementation:
         if __debug__:
             if bob_ccc.final_key != []:
                 print(f"Bob Matched Bits Key Len ({(len(bob_ccc._common_bits))}):\n{bob_ccc._common_bits}")
-                matched_polarizations_format = []
-                for i in range(len(bob_ccc._common_bits)):
-                    if bob_ccc._common_bits[i] == 0: matched_polarizations_format.append('0º')
-                    elif bob_ccc._common_bits[i] == 1: matched_polarizations_format.append('90º')
-                print(f"Bob Matched polarizations format:\n -> {matched_polarizations_format}")
+                # matched_polarizations_format = []
+                # for i in range(len(bob_ccc._common_bits)):
+                #     if bob_ccc._common_bits[i] == 0: matched_polarizations_format.append('0º')
+                #     elif bob_ccc._common_bits[i] == 1: matched_polarizations_format.append('90º')
+                # print(f"Bob Matched polarizations format:\n -> {matched_polarizations_format}")
         start_er_time_tick = time.perf_counter()
         bob_er = self.bob_process_error_correction_classical_steps(bob_ccc, role_bob, receive_queue)
         end_er_time_tick = time.perf_counter()

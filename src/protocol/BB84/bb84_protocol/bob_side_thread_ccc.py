@@ -696,8 +696,8 @@ class BobThread():
         self.send_data([self._common_test_indices, self._common_test_bits])
         logger.info(f"Thread id: {self._thread_id}: Sent {len(self._common_test_bits)} test bits.")
         logger.debug2(f"Thread id: {self._thread_id}: Common key fraction indices sent: {self._common_test_indices}")
-        print(f"Common test indices sent: {self._common_test_indices}")
-        print(f"Common test bits sent: {self._common_test_bits}")
+        # print(f"Common test indices sent: {self._common_test_indices}")
+        # print(f"Common test bits sent: {self._common_test_bits}")
         return self._common_test_bits
     
     def receive_test_result(self):

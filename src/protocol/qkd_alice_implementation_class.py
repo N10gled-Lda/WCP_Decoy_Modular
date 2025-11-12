@@ -262,17 +262,17 @@ class QKDAliceImplementation:
 
         if __debug__:
             if alice_ccc.final_key != []:
-                print(f"Alice Bases and Bits ({(len(alice_ccc._bases))}):\n -> Bases: {alice_ccc._bases}\n -> Bits: {alice_ccc._bits}")
-                polarizations_format = []
-                for i in range(len(alice_ccc._bases)):
-                    if alice_ccc._bases[i] == 0:
-                        if alice_ccc._bits[i] == 0: polarizations_format.append('0º')
-                        else: polarizations_format.append('90º')
-                    else:
-                        if alice_ccc._bits[i] == 0: polarizations_format.append('45º')
-                        else: polarizations_format.append('135º')
-                print(f"Alice Polarizations format:\n -> {polarizations_format}")
-                print("----------------------------------------------------------------------")
+                # print(f"Alice Bases and Bits ({(len(alice_ccc._bases))}):\n -> Bases: {alice_ccc._bases}\n -> Bits: {alice_ccc._bits}")
+                # polarizations_format = []
+                # for i in range(len(alice_ccc._bases)):
+                #     if alice_ccc._bases[i] == 0:
+                #         if alice_ccc._bits[i] == 0: polarizations_format.append('0º')
+                #         else: polarizations_format.append('90º')
+                #     else:
+                #         if alice_ccc._bits[i] == 0: polarizations_format.append('45º')
+                #         else: polarizations_format.append('135º')
+                # print(f"Alice Polarizations format:\n -> {polarizations_format}")
+                # print("----------------------------------------------------------------------")
                 print(f"Alice Detected bases and bits ({(len(alice_ccc._detected_bases))}):\n -> Bases: {alice_ccc._detected_bases}\n -> Bits: {alice_ccc._detected_bits}")
                 detected_polarizations_format = []
                 for i in range(len(alice_ccc._detected_bases)):
@@ -285,11 +285,11 @@ class QKDAliceImplementation:
                 print(f"Alice Dected polarizations format:\n -> {detected_polarizations_format}")
                 print("----------------------------------------------------------------------")
                 print(f"Alice Matched Bits ({(len(alice_ccc._common_bits))}):\n{alice_ccc._common_bits}")
-                matched_polarizations_format = []
-                for i in range(len(alice_ccc._common_bits)):
-                    if alice_ccc._common_bits[i] == 0: matched_polarizations_format.append('0º')
-                    elif alice_ccc._common_bits[i] == 1: matched_polarizations_format.append('90º')
-                print(f"Alice Matched polarizations format:\n -> {matched_polarizations_format}")
+                # matched_polarizations_format = []
+                # for i in range(len(alice_ccc._common_bits)):
+                #     if alice_ccc._common_bits[i] == 0: matched_polarizations_format.append('0º')
+                #     elif alice_ccc._common_bits[i] == 1: matched_polarizations_format.append('90º')
+                # print(f"Alice Matched polarizations format:\n -> {matched_polarizations_format}")
                 print("----------------------------------------------------------------------")
                 print("----------------------------------------------------------------------")
                 print(f"Alice Base Sifted Key Len ({(len(alice_ccc.final_key))}):\n{alice_ccc.final_key}")
