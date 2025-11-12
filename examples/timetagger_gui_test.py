@@ -10,6 +10,9 @@ import time
 from queue import Queue, Empty
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, List, Any, Union
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
 import sys
 import os
@@ -57,6 +60,166 @@ def run_in_background(func):
     return wrapper
 
 
+class HistogramWindow(ctk.CTkToplevel):
+    """Window displaying histogram of measurement counts."""
+    
+    def __init__(self, parent):
+        super().__init__(parent)
+        
+        self.title("Count Histogram")
+        self.geometry("800x600")
+        
+        # Data storage for histogram
+        self.histogram_data: List[int] = []
+        
+        # Histogram display mode
+        # Options: "all_nonzero", "valid_only", "channel_specific"
+        self.display_mode = "all_nonzero"  # ACTIVE MODE
+        self.filter_channel = None  # For channel_specific mode
+        
+        self.setup_gui()
+        
+    def setup_gui(self):
+        """Set up the histogram GUI."""
+        # Control frame at top
+        control_frame = ctk.CTkFrame(self)
+        control_frame.pack(side="top", fill="x", padx=10, pady=10)
+        
+        # Title
+        ctk.CTkLabel(control_frame, text="Total Count Histogram", 
+                    font=ctk.CTkFont(size=16, weight="bold")).pack(side="left", padx=10)
+        
+        # Reset button
+        reset_btn = ctk.CTkButton(control_frame, text="Reset Data", 
+                                  command=self.reset_histogram_data, width=100)
+        reset_btn.pack(side="right", padx=10)
+        
+        # Display mode selector (commented out inactive modes)
+        mode_frame = ctk.CTkFrame(control_frame)
+        mode_frame.pack(side="left", padx=20)
+        ctk.CTkLabel(mode_frame, text="Mode:").pack(side="left", padx=5)
+        self.mode_var = ctk.StringVar(value="all_nonzero")
+        mode_menu = ctk.CTkOptionMenu(mode_frame, variable=self.mode_var,
+                                      values=["all_nonzero", "valid_only", "channel_specific"],
+                                      command=self.on_mode_changed)
+        mode_menu.pack(side="left")
+        
+        # Channel selector (for channel_specific mode - commented out)
+        self.channel_frame = ctk.CTkFrame(control_frame)
+        self.channel_frame.pack(side="left", padx=10)
+        ctk.CTkLabel(self.channel_frame, text="Channel:").pack(side="left", padx=5)
+        self.channel_var = ctk.StringVar(value="1")
+        self.channel_menu = ctk.CTkOptionMenu(self.channel_frame, variable=self.channel_var,
+                                              values=["1", "2", "3", "4"],
+                                              command=lambda _: self.update_histogram())
+        self.channel_menu.pack(side="left")
+        self.channel_frame.pack_forget()  # Hidden by default
+        
+        # Matplotlib figure frame
+        plot_frame = ctk.CTkFrame(self)
+        plot_frame.pack(side="top", fill="both", expand=True, padx=10, pady=(0, 10))
+        
+        # Create matplotlib figure
+        self.figure = Figure(figsize=(8, 5), dpi=100)
+        self.ax = self.figure.add_subplot(111)
+        self.ax.set_xlabel("Total Counts per Bin")
+        self.ax.set_ylabel("Frequency")
+        self.ax.set_title("Distribution of Total Counts")
+        self.ax.grid(True, alpha=0.3)
+        
+        # Embed figure in tkinter
+        self.canvas = FigureCanvasTkAgg(self.figure, plot_frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        
+        # Info label
+        self.info_label = ctk.CTkLabel(self, text="No data collected yet", 
+                                       font=ctk.CTkFont(size=11))
+        self.info_label.pack(side="bottom", pady=5)
+        
+    def on_mode_changed(self, new_mode: str):
+        """Handle display mode change."""
+        self.display_mode = new_mode
+        
+        # Show/hide channel selector
+        if new_mode == "channel_specific":
+            self.channel_frame.pack(side="left", padx=10)
+        else:
+            self.channel_frame.pack_forget()
+        
+        self.update_histogram()
+    
+    def add_measurement(self, counts: Dict[int, int]):
+        """Add a new measurement to histogram data.
+        
+        Filtering modes:
+        - all_nonzero: Include bins where total count > 0 (ACTIVE)
+        - valid_only: Include only bins with exactly one channel having counts
+        - channel_specific: Include only bins where specified channel has counts
+        """
+        total_count = sum(counts.values())
+        
+        if self.display_mode == "all_nonzero":
+            # ACTIVE MODE: Include all bins with non-zero total count
+            if total_count > 0:
+                self.histogram_data.append(total_count)
+        
+        elif self.display_mode == "valid_only":
+            # Include only valid bins (exactly one channel with counts >= 1)
+            channels_with_counts = [ch for ch, count in counts.items() if count >= 1]
+            if len(channels_with_counts) == 1 and total_count > 0:
+                self.histogram_data.append(total_count)
+        
+        elif self.display_mode == "channel_specific":
+            # Include only bins where the specified channel has counts
+            try:
+                filter_channel = int(self.channel_var.get())
+                if counts.get(filter_channel, 0) >= 1 and total_count > 0:
+                    self.histogram_data.append(total_count)
+            except ValueError:
+                pass
+        
+        self.update_histogram()
+    
+    def update_histogram(self):
+        """Redraw the histogram with current data."""
+        self.ax.clear()
+        
+        if not self.histogram_data:
+            self.ax.text(0.5, 0.5, "No data to display", 
+                        ha='center', va='center', transform=self.ax.transAxes,
+                        fontsize=14, color='gray')
+            self.ax.set_xlabel("Total Counts per Bin")
+            self.ax.set_ylabel("Frequency")
+            self.ax.set_title("Distribution of Total Counts")
+            self.info_label.configure(text="No data collected yet")
+        else:
+            # Calculate histogram
+            self.ax.hist(self.histogram_data, bins=20, color='#fe9409', 
+                        alpha=0.7, edgecolor='black')
+            self.ax.set_xlabel("Total Counts per Bin")
+            self.ax.set_ylabel("Frequency")
+            self.ax.set_title("Distribution of Total Counts")
+            self.ax.grid(True, alpha=0.3)
+            
+            # Update info label with statistics
+            mean_count = sum(self.histogram_data) / len(self.histogram_data)
+            max_count = max(self.histogram_data)
+            min_count = min(self.histogram_data)
+            self.info_label.configure(
+                text=f"Bins: {len(self.histogram_data)} | Mean: {mean_count:.1f} | "
+                     f"Min: {min_count} | Max: {max_count}"
+            )
+        
+        self.canvas.draw()
+    
+    def reset_histogram_data(self):
+        """Clear all histogram data."""
+        self.histogram_data.clear()
+        self.update_histogram()
+        logger.info("Histogram data reset")
+
+
 class TimeTaggerControllerGUI(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -76,6 +239,9 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.connected = False
         self.results_history: List[Dict[str, int]] = []
         self.result_cells: List[Dict[str, ctk.CTkLabel]] = []
+        
+        # Histogram window
+        self.histogram_window: Optional[HistogramWindow] = None
         
         # Measurement state
         self.is_measuring = False
@@ -304,8 +470,17 @@ class TimeTaggerControllerGUI(ctk.CTk):
         # self.repeat_entry = ctk.CTkEntry(mode_frame, textvariable=self.repeat_count_var)
         # self.repeat_entry.grid(row=2, column=1, padx=4, pady=(6, 4), sticky="ew")
         
-        self.measure_button = ctk.CTkButton(measure_frame, text="Start Measurement", command=self.toggle_measurement, state="disabled")
-        self.measure_button.grid(row=5, column=0, columnspan=2, padx=10, pady=5)
+        # Buttons frame for measurement and histogram
+        buttons_frame = ctk.CTkFrame(measure_frame, fg_color="transparent")
+        buttons_frame.grid(row=5, column=0, columnspan=2, padx=10, pady=5)
+        
+        self.measure_button = ctk.CTkButton(buttons_frame, text="Start Measurement", 
+                                           command=self.toggle_measurement, state="disabled", width=140)
+        self.measure_button.pack(side="left", padx=(0, 5))
+        
+        self.histogram_button = ctk.CTkButton(buttons_frame, text="Histogram", 
+                                             command=self.open_histogram_window, width=100)
+        self.histogram_button.pack(side="left")
 
 
     def setup_results_frame(self, parent_frame: ctk.CTkFrame):
@@ -690,6 +865,10 @@ class TimeTaggerControllerGUI(ctk.CTk):
         # Save counts to recent_counts (all measurements)
         self.recent_counts.append(counts.copy())
         
+        # Update histogram window if open
+        if self.histogram_window and self.histogram_window.winfo_exists():
+            self.histogram_window.add_measurement(counts)
+        
         # Check if this is a valid bin (exactly one channel has counts >= 1)
         channels_with_counts = [ch for ch, count in counts.items() if count >= 1]
         
@@ -884,6 +1063,15 @@ class TimeTaggerControllerGUI(ctk.CTk):
             for label in self.count_labels[pol_key]:
                 label.configure(text="—")
 
+    def open_histogram_window(self):
+        """Open or focus the histogram window."""
+        if self.histogram_window is None or not self.histogram_window.winfo_exists():
+            self.histogram_window = HistogramWindow(self)
+            self.histogram_window.focus()
+        else:
+            self.histogram_window.focus()
+            self.histogram_window.lift()
+    
     def connection_status_text(self) -> str:
         """Return a user friendly connection status line."""
         if not self.connected or not self.driver:
