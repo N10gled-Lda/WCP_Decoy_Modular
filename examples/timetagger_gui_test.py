@@ -66,8 +66,8 @@ class HistogramWindow(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
         
-        self.title("Count Histogram")
-        self.geometry("800x600")
+        self.title("Count Histogram & Relations")
+        self.geometry("900x700")
         
         # Data storage for histogram
         self.histogram_data: List[int] = []
@@ -76,6 +76,22 @@ class HistogramWindow(ctk.CTkToplevel):
         # Options: "all_nonzero", "valid_only", "channel_specific"
         self.display_mode = "all_nonzero"  # ACTIVE MODE
         self.filter_channel = None  # For channel_specific mode
+        
+        # View mode: "histogram" or "relations"
+        self.view_mode = "histogram"
+        
+        # Relations data storage
+        self.relations_data: List[Dict[str, float]] = []  # Store relation ratios for each bin
+        self.relations_accumulation_mode = "last_bin"  # "last_bin" or "accumulate"
+        self.relations_accumulation_bins = 10  # Number of bins to accumulate
+        
+        # Channel mapping for relations (default mapping)
+        self.relation_channels = {
+            "H": "4",
+            "V": "3",
+            "D": "2",
+            "A": "1"
+        }
         
         self.setup_gui()
         
@@ -86,25 +102,49 @@ class HistogramWindow(ctk.CTkToplevel):
         control_frame.pack(side="top", fill="x", padx=10, pady=10)
         
         # Title
-        ctk.CTkLabel(control_frame, text="Total Count Histogram", 
-                    font=ctk.CTkFont(size=16, weight="bold")).pack(side="left", padx=10)
+        self.title_label = ctk.CTkLabel(control_frame, text="Total Count Histogram", 
+                    font=ctk.CTkFont(size=16, weight="bold"))
+        self.title_label.pack(side="left", padx=10)
         
-        # Reset button
-        reset_btn = ctk.CTkButton(control_frame, text="Reset Data", 
-                                  command=self.reset_histogram_data, width=100)
-        reset_btn.pack(side="right", padx=10)
+        # View mode switch
+        self.view_switch = ctk.CTkSwitch(control_frame, text="View Relations", 
+                                         command=self.toggle_view_mode,
+                                         onvalue=True, offvalue=False)
+        self.view_switch.pack(side="left", padx=20)
         
-        # Display mode selector (commented out inactive modes)
-        mode_frame = ctk.CTkFrame(control_frame)
-        mode_frame.pack(side="left", padx=20)
-        ctk.CTkLabel(mode_frame, text="Mode:").pack(side="left", padx=5)
+        # Histogram mode selector (for histogram view)
+        self.histogram_mode_frame = ctk.CTkFrame(control_frame)
+        self.histogram_mode_frame.pack(side="left", padx=20)
+        ctk.CTkLabel(self.histogram_mode_frame, text="Mode:").pack(side="left", padx=5)
         self.mode_var = ctk.StringVar(value="all_nonzero")
-        mode_menu = ctk.CTkOptionMenu(mode_frame, variable=self.mode_var,
+        mode_menu = ctk.CTkOptionMenu(self.histogram_mode_frame, variable=self.mode_var,
                                       values=["all_nonzero", "valid_only", "channel_specific"],
                                       command=self.on_mode_changed)
         mode_menu.pack(side="left")
         
-        # Channel selector (for channel_specific mode - commented out)
+        # Relations mode selector (for relations view)
+        self.relations_mode_frame = ctk.CTkFrame(control_frame)
+        # Will be packed when switching to relations view
+        ctk.CTkLabel(self.relations_mode_frame, text="Mode:").pack(side="left", padx=5)
+        self.accumulation_var = ctk.StringVar(value="last_bin")
+        accumulation_menu = ctk.CTkOptionMenu(self.relations_mode_frame, variable=self.accumulation_var,
+                                              values=["last_bin", "accumulate"],
+                                              command=self.on_accumulation_mode_changed,
+                                              width=120)
+        accumulation_menu.pack(side="left", padx=5)
+        
+        # Bins to accumulate entry (only for accumulate mode in relations view)
+        self.accumulate_bins_frame = ctk.CTkFrame(control_frame)
+        # Will be packed when accumulate mode is selected
+        ctk.CTkLabel(self.accumulate_bins_frame, text="Bins:").pack(side="left", padx=5)
+        self.accumulate_bins_var = ctk.StringVar(value="10")
+        self.accumulate_bins_entry = ctk.CTkEntry(self.accumulate_bins_frame, 
+                                                   textvariable=self.accumulate_bins_var,
+                                                   width=60)
+        self.accumulate_bins_entry.pack(side="left")
+        self.accumulate_bins_entry.bind("<Return>", lambda e: self.update_relations_display())
+        
+        # Channel selector (for channel_specific mode in histogram view)
         self.channel_frame = ctk.CTkFrame(control_frame)
         self.channel_frame.pack(side="left", padx=10)
         ctk.CTkLabel(self.channel_frame, text="Channel:").pack(side="left", padx=5)
@@ -115,9 +155,35 @@ class HistogramWindow(ctk.CTkToplevel):
         self.channel_menu.pack(side="left")
         self.channel_frame.pack_forget()  # Hidden by default
         
-        # Matplotlib figure frame
-        plot_frame = ctk.CTkFrame(self)
-        plot_frame.pack(side="top", fill="both", expand=True, padx=10, pady=(0, 10))
+        # Reset button
+        reset_btn = ctk.CTkButton(control_frame, text="Reset Data", 
+                                  command=self.reset_histogram_data, width=100)
+        reset_btn.pack(side="right", padx=10)
+        
+        # Container for switching between views
+        self.content_container = ctk.CTkFrame(self)
+        self.content_container.pack(side="top", fill="both", expand=True, padx=10, pady=(0, 10))
+        
+        # Setup histogram view
+        self.setup_histogram_view()
+        
+        # Setup relations view
+        self.setup_relations_view()
+        
+        # Show histogram by default
+        self.histogram_frame.pack(fill="both", expand=True)
+        self.relations_frame.pack_forget()
+        self.relations_mode_frame.pack_forget()  # Hide relations mode initially
+        self.accumulate_bins_frame.pack_forget()  # Hide bins entry initially
+        
+        # Info label at bottom
+        self.info_label = ctk.CTkLabel(self, text="No data collected yet", 
+                                       font=ctk.CTkFont(size=11))
+        self.info_label.pack(side="bottom", pady=5)
+    
+    def setup_histogram_view(self):
+        """Setup the histogram matplotlib view."""
+        self.histogram_frame = ctk.CTkFrame(self.content_container)
         
         # Create matplotlib figure
         self.figure = Figure(figsize=(8, 5), dpi=100)
@@ -128,15 +194,143 @@ class HistogramWindow(ctk.CTkToplevel):
         self.ax.grid(True, alpha=0.3)
         
         # Embed figure in tkinter
-        self.canvas = FigureCanvasTkAgg(self.figure, plot_frame)
+        self.canvas = FigureCanvasTkAgg(self.figure, self.histogram_frame)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
+    
+    def setup_relations_view(self):
+        """Setup the relations analysis view."""
+        self.relations_frame = ctk.CTkFrame(self.content_container)
         
-        # Info label
-        self.info_label = ctk.CTkLabel(self, text="No data collected yet", 
-                                       font=ctk.CTkFont(size=11))
-        self.info_label.pack(side="bottom", pady=5)
+        # Grid frame for relations display (no more top control frame here)
+        self.relations_grid = ctk.CTkFrame(self.relations_frame, fg_color="transparent")
+        self.relations_grid.pack(side="top", fill="both", expand=True, padx=10, pady=10)
         
+        # Configure grid
+        self.relations_grid.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        
+        # Create 4 columns for H/V, V/H, D/A, A/D
+        self.relation_pairs = [
+            ("H", "V", "H/(H+V)"),
+            ("V", "H", "V/(V+H)"),
+            ("D", "A", "D/(D+A)"),
+            ("A", "D", "A/(A+D)")
+        ]
+        
+        self.relation_channel_vars = {}
+        self.relation_value_labels = {}
+        
+        for col_idx, (numerator, denominator, label_text) in enumerate(self.relation_pairs):
+            # Column frame
+            col_frame = ctk.CTkFrame(self.relations_grid, fg_color=("gray85", "gray25"))
+            col_frame.grid(row=0, column=col_idx, padx=10, pady=10, sticky="nsew")
+            
+            # Title
+            ctk.CTkLabel(col_frame, text=label_text, 
+                        font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(10, 5))
+            
+            # Channel selectors
+            channel_frame = ctk.CTkFrame(col_frame, fg_color="transparent")
+            channel_frame.pack(pady=10, padx=5)
+            
+            # Numerator channel selector
+            ctk.CTkLabel(channel_frame, text=f"{numerator} Ch:").grid(row=0, column=0, padx=5, pady=2, sticky="e")
+            num_var = ctk.StringVar(value=self.relation_channels[numerator])
+            num_menu = ctk.CTkOptionMenu(channel_frame, variable=num_var,
+                                         values=["1", "2", "3", "4"],
+                                         command=lambda _: self.update_relations_display(),
+                                         width=70)
+            num_menu.grid(row=0, column=1, padx=5, pady=2)
+            self.relation_channel_vars[numerator] = num_var
+            
+            # Denominator channel selector
+            ctk.CTkLabel(channel_frame, text=f"{denominator} Ch:").grid(row=1, column=0, padx=5, pady=2, sticky="e")
+            denom_var = ctk.StringVar(value=self.relation_channels[denominator])
+            denom_menu = ctk.CTkOptionMenu(channel_frame, variable=denom_var,
+                                           values=["1", "2", "3", "4"],
+                                           command=lambda _: self.update_relations_display(),
+                                           width=70)
+            denom_menu.grid(row=1, column=1, padx=5, pady=2)
+            self.relation_channel_vars[denominator] = denom_var
+            
+            # Divider
+            ctk.CTkFrame(col_frame, height=2, fg_color=("gray70", "gray40")).pack(fill="x", padx=20, pady=10)
+            
+            # Average/Current ratio display
+            ratio_display_frame = ctk.CTkFrame(col_frame, fg_color=("gray90", "gray20"))
+            ratio_display_frame.pack(pady=10, padx=10, fill="x")
+            
+            ctk.CTkLabel(ratio_display_frame, text="Ratio:", 
+                        font=ctk.CTkFont(size=11)).pack(pady=(5, 0))
+            ratio_label = ctk.CTkLabel(ratio_display_frame, text="—", 
+                                      font=ctk.CTkFont(size=20, weight="bold"))
+            ratio_label.pack(pady=(0, 5))
+            self.relation_value_labels[f"{numerator}/{denominator}"] = ratio_label
+        
+        self.relations_grid.grid_rowconfigure(0, weight=1)
+        
+    def toggle_view_mode(self):
+        """Toggle between histogram and relations view."""
+        if self.view_switch.get():
+            # Switch to relations view
+            self.view_mode = "relations"
+            self.view_switch.configure(text="View Histogram")
+            self.title_label.configure(text="Base Relations Analysis")
+            self.histogram_frame.pack_forget()
+            self.relations_frame.pack(fill="both", expand=True)
+            
+            # Hide histogram controls, show relations controls
+            self.histogram_mode_frame.pack_forget()
+            self.channel_frame.pack_forget()
+            self.relations_mode_frame.pack(side="left", padx=20, after=self.view_switch)
+            
+            # Show bins entry if in accumulate mode
+            if self.accumulation_var.get() == "accumulate":
+                self.accumulate_bins_frame.pack(side="left", padx=10, after=self.relations_mode_frame)
+            
+            self.update_relations_display()
+        else:
+            # Switch to histogram view
+            self.view_mode = "histogram"
+            self.view_switch.configure(text="View Relations")
+            self.title_label.configure(text="Total Count Histogram")
+            self.relations_frame.pack_forget()
+            self.histogram_frame.pack(fill="both", expand=True)
+            
+            # Hide relations controls, show histogram controls
+            self.relations_mode_frame.pack_forget()
+            self.accumulate_bins_frame.pack_forget()
+            self.histogram_mode_frame.pack(side="left", padx=20, after=self.view_switch)
+            
+            # Show channel selector if in channel_specific mode
+            if self.display_mode == "channel_specific":
+                self.channel_frame.pack(side="left", padx=10, after=self.histogram_mode_frame)
+            
+            self.update_histogram()
+    
+    def on_accumulation_mode_changed(self, mode: str):
+        """Handle accumulation mode change."""
+        self.relations_accumulation_mode = mode
+        
+        if mode == "accumulate":
+            self.accumulate_bins_frame.pack(side="left", padx=10, after=self.relations_mode_frame)
+        else:
+            self.accumulate_bins_frame.pack_forget()
+        
+        # Trim relations_data to appropriate size for the new mode
+        try:
+            if mode == "last_bin":
+                max_needed = 1
+            else:  # accumulate mode
+                max_needed = int(self.accumulate_bins_var.get())
+            
+            if len(self.relations_data) > max_needed:
+                self.relations_data = self.relations_data[-max_needed:]
+        except (ValueError, AttributeError):
+            pass  # Keep current data if there's an error
+        
+        self.update_relations_display()
+    
     def on_mode_changed(self, new_mode: str):
         """Handle display mode change."""
         self.display_mode = new_mode
@@ -179,7 +373,104 @@ class HistogramWindow(ctk.CTkToplevel):
             except ValueError:
                 pass
         
-        self.update_histogram()
+        # Calculate and store relations for this bin
+        self.calculate_bin_relations(counts)
+        
+        # Update the appropriate view
+        if self.view_mode == "histogram":
+            self.update_histogram()
+        else:
+            self.update_relations_display()
+    
+    def calculate_bin_relations(self, counts: Dict[int, int]):
+        """Calculate relation ratios for the current bin."""
+        relations = {}
+        
+        for numerator, denominator, _ in self.relation_pairs:
+            try:
+                num_channel = int(self.relation_channel_vars[numerator].get())
+                denom_channel = int(self.relation_channel_vars[denominator].get())
+                
+                num_count = counts.get(num_channel, 0)
+                denom_count = counts.get(denom_channel, 0)
+                
+                total = num_count + denom_count
+                
+                if total > 0:
+                    ratio = num_count / total
+                    relations[f"{numerator}/{denominator}"] = ratio
+                else:
+                    relations[f"{numerator}/{denominator}"] = None
+            except (ValueError, ZeroDivisionError):
+                relations[f"{numerator}/{denominator}"] = None
+        
+        self.relations_data.append(relations)
+        
+        # Keep only necessary data based on accumulation mode
+        # For "last_bin" mode, we only need 1 entry
+        # For "accumulate" mode, we only need the last N entries
+        try:
+            if self.relations_accumulation_mode == "last_bin":
+                max_needed = 1
+            else:  # accumulate mode
+                max_needed = int(self.accumulate_bins_var.get())
+        except (ValueError, AttributeError):
+            max_needed = 10  # Default fallback
+        
+        # Trim the list if it exceeds what we need
+        if len(self.relations_data) > max_needed:
+            self.relations_data = self.relations_data[-max_needed:]
+    
+    def update_relations_display(self):
+        """Update the relations display based on current mode."""
+        if self.relations_accumulation_mode == "last_bin":
+            # Show only the last bin's ratios
+            if self.relations_data:
+                last_relations = self.relations_data[-1]
+                for key, value in last_relations.items():
+                    if key in self.relation_value_labels:
+                        if value is not None:
+                            percentage = value * 100  # Convert ratio to percentage
+                            self.relation_value_labels[key].configure(text=f"{percentage:.1f}%")
+                        else:
+                            self.relation_value_labels[key].configure(text="—")
+                
+                self.info_label.configure(text=f"Showing last bin | Total bins: {len(self.relations_data)}")
+            else:
+                for label in self.relation_value_labels.values():
+                    label.configure(text="—")
+                self.info_label.configure(text="No data collected yet")
+        
+        elif self.relations_accumulation_mode == "accumulate":
+            # Calculate mean of last N bins
+            try:
+                n_bins = int(self.accumulate_bins_var.get())
+            except ValueError:
+                n_bins = 10
+            
+            if self.relations_data:
+                # Get last N bins (or all if less than N)
+                recent_data = self.relations_data[-n_bins:]
+                actual_bins = len(recent_data)
+                
+                # Calculate mean for each relation
+                for key in self.relation_value_labels.keys():
+                    valid_values = [rel[key] for rel in recent_data if rel.get(key) is not None]
+                    
+                    if valid_values:
+                        mean_ratio = sum(valid_values) / len(valid_values)
+                        percentage = mean_ratio * 100  # Convert ratio to percentage
+                        self.relation_value_labels[key].configure(text=f"{percentage:.1f}%")
+                    else:
+                        self.relation_value_labels[key].configure(text="—")
+                
+                self.info_label.configure(
+                    text=f"Mean of last {actual_bins} bins (requested: {n_bins}) | Total bins: {len(self.relations_data)}"
+                )
+            else:
+                for label in self.relation_value_labels.values():
+                    label.configure(text="—")
+                self.info_label.configure(text="No data collected yet")
     
     def update_histogram(self):
         """Redraw the histogram with current data."""
@@ -216,8 +507,14 @@ class HistogramWindow(ctk.CTkToplevel):
     def reset_histogram_data(self):
         """Clear all histogram data."""
         self.histogram_data.clear()
-        self.update_histogram()
-        logger.info("Histogram data reset")
+        self.relations_data.clear()
+        
+        if self.view_mode == "histogram":
+            self.update_histogram()
+        else:
+            self.update_relations_display()
+        
+        logger.info("Histogram and relations data reset")
 
 
 class TimeTaggerControllerGUI(ctk.CTk):
@@ -801,6 +1098,15 @@ class TimeTaggerControllerGUI(ctk.CTk):
         self.recent_counts = []
         self.valid_counts = []
         self.update_statistics()
+        
+        # Clear histogram and relations data in the histogram window if it exists
+        if self.histogram_window and self.histogram_window.winfo_exists():
+            self.histogram_window.histogram_data.clear()
+            self.histogram_window.relations_data.clear()
+            if self.histogram_window.view_mode == "histogram":
+                self.histogram_window.update_histogram()
+            else:
+                self.histogram_window.update_relations_display()
         
         self.is_measuring = True
         self.timetagger_controller.set_measurement_duration(self.time_per_bin)
