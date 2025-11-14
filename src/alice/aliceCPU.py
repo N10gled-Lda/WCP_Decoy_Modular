@@ -2,6 +2,7 @@
 Alice's main controller for QKD transmission.
 """
 import logging
+import struct
 import time
 import threading
 import socket
@@ -76,6 +77,9 @@ class AliceConfig:
     test_fraction: float = 0.1
     error_threshold: float = 0.11  # Max tolerable QBER
     loss_rate: float = 0.0
+    
+    # Synchronization parameters
+    sync_interval: Optional[int] = None  # Resync every X pulses (None = no resyncing)
 
     # Hardware parameters
     use_hardware: bool = False
@@ -193,6 +197,9 @@ class AliceCPU:
         self.enable_post_processing = self.config.enable_post_processing
         self.pa_compression_rate = self.config.pa_compression_rate
         self.num_threads = self.config.num_threads
+        
+        # Synchronization configuration
+        self.sync_interval = self.config.sync_interval
 
         # Classical communication objects (initialized later)
         self.classical_channel_participant_for_pp: Optional[QKDAliceImplementation] = None
@@ -205,6 +212,7 @@ class AliceCPU:
         self._acknowledge_marker = 150
         self._not_ready_marker = 200
         self._end_qch_marker = 250
+        self._sync_marker = 175  # New marker for periodic synchronization
         
         # System state
         self.results = AliceResults()
@@ -616,9 +624,71 @@ class AliceCPU:
             return True
             
     def _quantum_transmission_loop_with_connection(self, connection: socket.socket) -> None:
-        """Quantum transmission loop that sends data over connection."""
+        """Quantum transmission loop that sends data over connection with periodic synchronization."""
         start_time = time.time()
         laser_fire_fraction = 0.8  # Fraction of pulse period to fire laser after polarization set
+        
+        # Determine if we're using synchronized intervals
+        if self.sync_interval and self.sync_interval > 0:
+            self.logger.info(f"Using synchronized transmission with intervals of {self.sync_interval} pulses")
+            self._synchronized_transmission_loop(connection, start_time, laser_fire_fraction)
+        else:
+            self.logger.info("Using continuous transmission without synchronization intervals")
+            self._continuous_transmission_loop(connection, start_time, laser_fire_fraction)
+        
+        # Set polarization to 0 degrees at end in case of connection loss and reset needed
+        try:
+            self.logger.info("Setting polarization to 0º at end of transmission")
+            self.polarization_controller.set_polarization_manually(Basis.Z, Bit(0))
+        except Exception as e:
+            self.logger.error(f"Error resetting polarization to 0º at end: {e}")
+    
+    def _synchronized_transmission_loop(self, connection: socket.socket, start_time: float, laser_fire_fraction: float) -> None:
+        """Transmission loop with periodic synchronization to prevent timing drift."""
+        num_intervals = (self.num_pulses + self.sync_interval - 1) // self.sync_interval
+        
+        for interval_idx in range(num_intervals):
+            pulse_start_idx = interval_idx * self.sync_interval
+            pulse_end_idx = min((interval_idx + 1) * self.sync_interval, self.num_pulses)
+            num_pulses_in_interval = pulse_end_idx - pulse_start_idx
+            
+            self.logger.info(f"📡 Starting interval {interval_idx + 1}/{num_intervals}: pulses {pulse_start_idx} to {pulse_end_idx - 1}")
+            
+            # Send synchronization marker and wait for acknowledgment
+            if interval_idx > 0:  # Skip initial sync (already done in handshake)
+                self.logger.info(f"🔄 Sending sync marker before interval {interval_idx + 1}")
+                try:
+                    connection.sendall(struct.pack('!I', self._sync_marker))
+                    
+                    # Wait for acknowledgment with timeout
+                    connection.settimeout(10.0)
+                    response = connection.recv(4)
+                    if not response or struct.unpack('!I', response)[0] != self._acknowledge_marker:
+                        raise RuntimeError("Bob didn't acknowledge sync marker")
+                    self.logger.info("✅ Bob acknowledged sync marker, starting interval transmission")
+                    connection.settimeout(None)
+                    
+                    # Small delay to ensure Bob is ready to measure
+                    # time.sleep(0.1)
+                    
+                except Exception as e:
+                    self.logger.error(f"Sync handshake failed: {e}")
+                    raise
+            
+            # Transmit pulses for this interval
+            interval_start_time = time.time()
+            self._transmit_pulse_interval(connection, pulse_start_idx, pulse_end_idx, 
+                                         interval_start_time, laser_fire_fraction)
+            
+            self.logger.info(f"✅ Completed interval {interval_idx + 1}/{num_intervals}")
+        
+        # Update final statistics
+        self.results.total_runtime_seconds = time.time() - start_time
+        if self.results.total_runtime_seconds > 0:
+            self.results.average_pulse_rate_hz = self.results.pulses_sent / self.results.total_runtime_seconds
+    
+    def _continuous_transmission_loop(self, connection: socket.socket, start_time: float, laser_fire_fraction: float) -> None:
+        """Original continuous transmission loop without synchronization intervals."""
         for pulse_id in range(self.num_pulses):
             if self._shutdown_event.is_set():
                 break
@@ -628,85 +698,7 @@ class AliceCPU:
             target_laser_time = start_time + (pulse_id + laser_fire_fraction) * self.config.pulse_period_seconds 
  
             try:
-                # Get basis and bit
-                basis, bit = self._get_basis_and_bit(pulse_id)
-                self.logger.debug(f"Sending qubit {pulse_id}: basis={basis}, bit={bit}")
-
-                # Set polarization
-                print(f"🔸 Pulse {pulse_id}: Setting polarization Basis={basis.name}, Bit={bit.value}")
-                rotation_start = time.time()
-                pol_output = self.polarization_controller.set_polarization_manually(basis, bit)
-                
-                # Wait for polarization readiness
-                print(f"🔸 Pulse {pulse_id}: Waiting for polarization readiness...")
-                wait_start = time.time()
-                if not self.polarization_controller.wait_for_availability(timeout=10.0):
-                    error_msg = f"Timeout waiting for polarization readiness for pulse {pulse_id}"
-                    self.logger.error(error_msg)
-                    self.results.errors.append(error_msg)
-                    raise RuntimeError(f"Polarization not ready for pulse {pulse_id}")
-                wait_time = time.time() - wait_start
-                rotation_time = time.time() - rotation_start
-                self.results.rotation_times.append(rotation_time)
-                self.results.wait_times.append(wait_time)
-                print(f"   ➡️  Polarization ready after {wait_time:.3f}s")
-                print(f"       (Rotation time: {rotation_time:.3f}s)")
-                print(f"   ➡️  Polarization set to {pol_output.angle_degrees}°")
-
-                # # Wait until the scheduled laser fire time for consistent timing
-                # current_time = time.time()
-                # time_until_laser = target_laser_time - current_time
-                
-                # if time_until_laser > 0:
-                #     print(f"🔸 Pulse {pulse_id}: --------------------------> WAITING {time_until_laser:.3f}s to fire laser at scheduled time")
-                #     time.sleep(time_until_laser)
-                # elif time_until_laser < -0.001:  # More than 1ms late
-                #     self.logger.warning(f" ⚠️  Pulse {pulse_id}: --------------------------> {-time_until_laser:.3f}s LATE! Polarization took too long.")
-                
-
-                # Fire laser
-                print(f"🔸 Pulse {pulse_id}: Firing laser at scheduled time")
-                laser_start = time.time()
-                if not self.laser_controller.trigger_once():
-                    self.logger.error(f"Failed to trigger laser pulse {pulse_id}")
-                    self.results.errors.append(f"Failed to trigger laser pulse {pulse_id}")
-                    raise RuntimeError(f"Failed to trigger laser pulse {pulse_id}")
-                self.logger.debug(f"Laser pulse {pulse_id} triggered successfully")
-                laser_time = time.time() - laser_start
-                timing_error = laser_start - target_laser_time
-                print(f"   ➡️  Laser fired in {laser_time:.3f}s (timing error: {timing_error*1000:.1f}ms)")
-
-                # Record data
-                self.results.bases.append(basis)
-                self.results.bits.append(bit)
-                self.results.polarization_angles.append(pol_output.angle_degrees)
-                self.results.pulse_ids.append(pulse_id)
-                # Record timestamps
-                self.results.pulse_timestamps.append(laser_start-start_time)
-                self.results.rotation_times.append(rotation_time)
-                self.results.wait_times.append(wait_time)
-                self.results.laser_times.append(laser_time)
-
-                self.results.pulses_sent += 1
-
-                # Wait for next pulse period (until next pulse should start)
-                next_pulse_start = start_time + (pulse_id + 1) * self.config.pulse_period_seconds
-                current_time = time.time()
-                remaining_time = next_pulse_start - current_time
-
-                if remaining_time > 0:
-                    print(f"DEBUG: Waiting {remaining_time:.3f}s for next pulse period, Fired at {laser_start - start_time:.3f}, Target was {target_laser_time- start_time:.3f}")
-                    self.logger.debug(f"Waiting {remaining_time:.3f}s for next pulse period, Fired at {laser_start - start_time:.3f}, Target was {target_laser_time- start_time:.3f}")
-                    time.sleep(remaining_time)
-                elif remaining_time < -0.05:  # More than 50ms late
-                    self.logger.warning(f" Pulse {pulse_id} is {-remaining_time:.3f}s late for just a little late.")
-                else:
-                    total_pulse_time = current_time - pulse_start_time
-                    self.logger.warning(f" ⚠️ Pulse {pulse_id} exceeded period: {total_pulse_time:.3f}s > {self.config.pulse_period_seconds}s")
-                
-                print(f"   ✅ Pulse {pulse_id} completed\n")
-          
-                
+                self._send_single_pulse(pulse_id, start_time, target_laser_time, pulse_start_time)
             except Exception as e:
                 self.logger.error(f"Error processing pulse {pulse_id}: {e}")
                 self.results.errors.append(f"Pulse {pulse_id} error: {e}")
@@ -716,13 +708,95 @@ class AliceCPU:
         self.results.total_runtime_seconds = time.time() - start_time
         if self.results.total_runtime_seconds > 0:
             self.results.average_pulse_rate_hz = self.results.pulses_sent / self.results.total_runtime_seconds
+    
+    def _transmit_pulse_interval(self, connection: socket.socket, start_idx: int, end_idx: int, 
+                                 interval_start_time: float, laser_fire_fraction: float) -> None:
+        """Transmit a specific interval of pulses."""
+        for pulse_id in range(start_idx, end_idx):
+            if self._shutdown_event.is_set():
+                break
+            
+            pulse_start_time = time.time()
+            # Calculate relative position within interval for timing
+            relative_pulse_idx = pulse_id - start_idx
+            target_laser_time = interval_start_time + (relative_pulse_idx + laser_fire_fraction) * self.config.pulse_period_seconds
+            
+            try:
+                self._send_single_pulse(pulse_id, interval_start_time, target_laser_time, pulse_start_time)
+            except Exception as e:
+                self.logger.error(f"Error processing pulse {pulse_id}: {e}")
+                self.results.errors.append(f"Pulse {pulse_id} error: {e}")
+                continue
+    
+    def _send_single_pulse(self, pulse_id: int, reference_time: float, target_laser_time: float, pulse_start_time: float) -> None:
+        """Send a single quantum pulse."""
+        # Get basis and bit
+        basis, bit = self._get_basis_and_bit(pulse_id)
+        self.logger.debug(f"Sending qubit {pulse_id}: basis={basis}, bit={bit}")
 
-        # Set polarization to 0 degrees at end in case of connection loss and reset needed
-        try:
-            self.logger.info("Setting polarization to 0º at end of transmission")
-            self.polarization_controller.set_polarization_manually(Basis.Z, Bit(0))
-        except Exception as e:
-            self.logger.error(f"Error resetting polarization to 0º at end: {e}")
+        # Set polarization
+        print(f"🔸 Pulse {pulse_id}: Setting polarization Basis={basis.name}, Bit={bit.value}")
+        rotation_start = time.time()
+        pol_output = self.polarization_controller.set_polarization_manually(basis, bit)
+        
+        # Wait for polarization readiness
+        print(f"🔸 Pulse {pulse_id}: Waiting for polarization readiness...")
+        wait_start = time.time()
+        if not self.polarization_controller.wait_for_availability(timeout=10.0):
+            error_msg = f"Timeout waiting for polarization readiness for pulse {pulse_id}"
+            self.logger.error(error_msg)
+            self.results.errors.append(error_msg)
+            raise RuntimeError(f"Polarization not ready for pulse {pulse_id}")
+        wait_time = time.time() - wait_start
+        rotation_time = time.time() - rotation_start
+        self.results.rotation_times.append(rotation_time)
+        self.results.wait_times.append(wait_time)
+        print(f"   ➡️  Polarization ready after {wait_time:.3f}s")
+        print(f"       (Rotation time: {rotation_time:.3f}s)")
+        print(f"   ➡️  Polarization set to {pol_output.angle_degrees}°")
+
+        # Fire laser
+        print(f"🔸 Pulse {pulse_id}: Firing laser at scheduled time")
+        laser_start = time.time()
+        if not self.laser_controller.trigger_once():
+            self.logger.error(f"Failed to trigger laser pulse {pulse_id}")
+            self.results.errors.append(f"Failed to trigger laser pulse {pulse_id}")
+            raise RuntimeError(f"Failed to trigger laser pulse {pulse_id}")
+        self.logger.debug(f"Laser pulse {pulse_id} triggered successfully")
+        laser_time = time.time() - laser_start
+        timing_error = laser_start - target_laser_time
+        print(f"   ➡️  Laser fired in {laser_time:.3f}s (timing error: {timing_error*1000:.1f}ms)")
+
+        # Record data
+        self.results.bases.append(basis)
+        self.results.bits.append(bit)
+        self.results.polarization_angles.append(pol_output.angle_degrees)
+        self.results.pulse_ids.append(pulse_id)
+        # Record timestamps
+        self.results.pulse_timestamps.append(laser_start - reference_time)
+        self.results.rotation_times.append(rotation_time)
+        self.results.wait_times.append(wait_time)
+        self.results.laser_times.append(laser_time)
+
+        self.results.pulses_sent += 1
+
+        # Wait for next pulse period (calculate relative to interval start)
+        relative_pulse_idx = pulse_id - (pulse_id // self.sync_interval * self.sync_interval if self.sync_interval else 0)
+        next_pulse_start = reference_time + (relative_pulse_idx + 1) * self.config.pulse_period_seconds
+        current_time = time.time()
+        remaining_time = next_pulse_start - current_time
+
+        if remaining_time > 0:
+            print(f"DEBUG: Waiting {remaining_time:.3f}s for next pulse period")
+            self.logger.debug(f"Waiting {remaining_time:.3f}s for next pulse period")
+            time.sleep(remaining_time)
+        elif remaining_time < -0.05:  # More than 50ms late
+            self.logger.warning(f" Pulse {pulse_id} is {-remaining_time:.3f}s late")
+        else:
+            total_pulse_time = current_time - pulse_start_time
+            self.logger.warning(f" ⚠️ Pulse {pulse_id} exceeded period: {total_pulse_time:.3f}s > {self.config.pulse_period_seconds}s")
+        
+        print(f"   ✅ Pulse {pulse_id} completed\n")
  
     def _get_basis_and_bit(self, pulse_id: int) -> Tuple[Basis, Bit]:
         """Get basis and bit for the given pulse (unified method)."""
@@ -905,7 +979,10 @@ if __name__ == "__main__":
         enable_post_processing=True,
         test_fraction=0.25,
         error_threshold=0.61,
-        pa_compression_rate=0.5
+        pa_compression_rate=0.5,
+
+        # Synchronization (resync every 1000 pulses to prevent timing drift)
+        sync_interval=1000
     )
     
     # Create Alice CPU instance

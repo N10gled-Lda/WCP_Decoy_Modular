@@ -3,6 +3,7 @@ Bob CPU
 Includes all the features Alice has: network setup, classical communication, post-processing, etc.
 """
 import socket
+import struct
 import time
 import logging
 import threading
@@ -71,6 +72,9 @@ class BobConfig:
     test_fraction: float = 0.1
     error_threshold: float = 0.11  # Max tolerable QBER
     loss_rate: float = 0.0
+    
+    # Synchronization parameters
+    sync_interval: Optional[int] = None  # Resync every X pulses (None = no resyncing)
     
     # Hardware parameters
     use_hardware: bool = False
@@ -166,6 +170,12 @@ class BobCPU:
         self.test_fraction = self.config.test_fraction
         self.error_threshold = self.config.error_threshold
         self.num_threads = self.config.num_threads
+        
+        # Synchronization configuration
+        self.sync_interval = self.config.sync_interval
+        
+        # Callback for GUI updates after each interval
+        self.interval_callback = None
 
         # Classical communication objects (initialized later) - matching Alice
         self.classical_channel_participant_for_pp: Optional[QKDBobImplementation] = None
@@ -178,6 +188,7 @@ class BobCPU:
         self._acknowledge_marker = 150
         self._not_ready_marker = 200
         self._end_qch_marker = 250
+        self._sync_marker = 175  # New marker for periodic synchronization
         
         # System state
         self.results = BobResults()
@@ -492,19 +503,82 @@ class BobCPU:
             
     def _quantum_reception_loop_with_connection(self, connection: socket.socket) -> None:
         """
-        Quantum reception loop - Continuous measurement with hardware-gated detectors.
+        Quantum reception loop with periodic synchronization support.
         
-        Unlike Alice's transmission timing, Bob measures continuously and relies on
-        physical detector gating to handle pulse timing. The TimeTagger captures
-        time-binned data showing when (if any) counts occurred during each period.
+        Bob measures continuously during each interval and waits for sync markers
+        between intervals to realign timing with Alice.
         """
         start_time = time.time()
+        
+        # Determine if we're using synchronized intervals
+        if self.sync_interval and self.sync_interval > 0:
+            self.logger.info(f"Using synchronized reception with intervals of {self.sync_interval} pulses")
+            self._synchronized_reception_loop(connection, start_time)
+        else:
+            self.logger.info("Using continuous reception without synchronization intervals")
+            self._continuous_reception_loop(connection, start_time)
+        
+        # Calculate final statistics
+        self.results.total_runtime_seconds = time.time() - start_time
+        if self.results.total_runtime_seconds > 0:
+            self.results.average_detection_rate_hz = self.results.pulses_with_counts / self.results.total_runtime_seconds
+    
+    def _synchronized_reception_loop(self, connection: socket.socket, start_time: float) -> None:
+        """Reception loop with periodic synchronization to prevent timing drift."""
+        num_intervals = (self.num_expected_pulses + self.sync_interval - 1) // self.sync_interval
+        
+        for interval_idx in range(num_intervals):
+            pulse_start_idx = interval_idx * self.sync_interval
+            pulse_end_idx = min((interval_idx + 1) * self.sync_interval, self.num_expected_pulses)
+            num_pulses_in_interval = pulse_end_idx - pulse_start_idx
+            
+            self.logger.info(f"📡 Starting interval {interval_idx + 1}/{num_intervals}: expecting pulses {pulse_start_idx} to {pulse_end_idx - 1}")
+            
+            # Wait for synchronization marker from Alice (except first interval)
+            if interval_idx > 0:
+                self.logger.info(f"🔄 Waiting for sync marker before interval {interval_idx + 1}")
+                try:
+                    connection.settimeout(30.0)  # Longer timeout for sync
+                    marker_data = connection.recv(4)
+                    if not marker_data:
+                        raise RuntimeError("Connection closed while waiting for sync marker")
+                    
+                    marker = struct.unpack('!I', marker_data)[0]
+                    if marker != self._sync_marker:
+                        raise RuntimeError(f"Expected sync marker {self._sync_marker}, got {marker}")
+                    
+                    # Acknowledge sync marker
+                    connection.sendall(struct.pack('!I', self._acknowledge_marker))
+                    self.logger.info("✅ Received sync marker, acknowledged, ready for next interval")
+                    connection.settimeout(None)
+                    
+                    # Small delay to ensure ready state
+                    # time.sleep(0.1)
+                    
+                except Exception as e:
+                    self.logger.error(f"Sync handshake failed: {e}")
+                    raise
+            
+            # Measure pulses for this interval
+            interval_start_time = time.time()
+            self._measure_pulse_interval(pulse_start_idx, pulse_end_idx, interval_start_time)
+            
+            # Call interval callback if registered (for GUI updates)
+            if self.interval_callback:
+                try:
+                    self.interval_callback(interval_idx, pulse_start_idx, pulse_end_idx)
+                except Exception as e:
+                    self.logger.warning(f"Interval callback error: {e}")
+            
+            self.logger.info(f"✅ Completed interval {interval_idx + 1}/{num_intervals}")
+    
+    def _continuous_reception_loop(self, connection: socket.socket, start_time: float) -> None:
+        """Original continuous reception loop without synchronization intervals."""
         total_measurement_time = self.num_expected_pulses * self.pulse_period_seconds
         
         self.logger.info(f"Starting continuous measurement for {total_measurement_time}s ({self.num_expected_pulses} pulses)")
         
         # Measure continuously for the entire transmission period
-        # Hardware detector gating handles the pulse timing
         measure_start = time.time()
         try:
             # Get detailed time-binned data from TimeTagger
@@ -530,7 +604,7 @@ class BobCPU:
             
             # Extract pulse-by-pulse data from time bins
             for pulse_id in range(self.num_expected_pulses):
-                timestamp = pulse_id * self.pulse_period_seconds + self.pulse_period_seconds/2  # Approximate center time
+                timestamp = pulse_id * self.pulse_period_seconds + self.pulse_period_seconds/2
                 
                 # Extract counts for this specific pulse from time-binned data
                 if timebin_data is not None:
@@ -546,7 +620,7 @@ class BobCPU:
                 self.results.pulse_counts.append(pulse_counts)
                 self.results.pulse_ids.append(pulse_id)
                 self.results.pulse_timestamps.append(timestamp)
-                self.results.measurement_times.append(measure_time / self.num_expected_pulses)  # Average
+                self.results.measurement_times.append(measure_time / self.num_expected_pulses)
                 self.results.pulses_received += 1
 
                 # Check if we detected anything for this pulse
@@ -560,11 +634,68 @@ class BobCPU:
         except Exception as e:
             self.logger.error(f"Error in continuous measurement: {e}")
             self.results.errors.append(f"Continuous measurement: {str(e)}")
+    
+    def _measure_pulse_interval(self, start_idx: int, end_idx: int, interval_start_time: float) -> None:
+        """Measure a specific interval of pulses."""
+        num_pulses_in_interval = end_idx - start_idx
+        interval_measurement_time = num_pulses_in_interval * self.pulse_period_seconds
+        
+        self.logger.info(f"Starting measurement for {interval_measurement_time}s ({num_pulses_in_interval} pulses)")
+        
+        measure_start = time.time()
+        try:
+            # Get detailed time-binned data from TimeTagger
+            if hasattr(self.timetagger_controller.driver, 'get_timebin_data'):
+                result = self.timetagger_controller.driver.get_timebin_data(interval_measurement_time)
+                if 'error' in result:
+                    raise Exception(f"TimeTagger error: {result['error']}")
+                
+                timebin_data = result['timebin_data']
+                binwidth_ps = result['binwidth_ps']
+                total_counts = result['counts_per_channel']
+                
+                self.logger.info(f"Interval measurement completed with {result['n_bins']} time bins")
+            else:
+                # Fallback to simple measurement
+                total_counts = self.timetagger_controller.measure_counts()
+                timebin_data = None
+                binwidth_ps = int(100e9)
+            
+            measure_time = time.time() - measure_start
+            self.logger.info(f"Interval measurement completed in {measure_time:.3f}s, total counts: {sum(total_counts.values())}")
+            
+            # Extract pulse-by-pulse data from time bins
+            for relative_pulse_idx in range(num_pulses_in_interval):
+                pulse_id = start_idx + relative_pulse_idx
+                timestamp = relative_pulse_idx * self.pulse_period_seconds + self.pulse_period_seconds/2
+                
+                # Extract counts for this specific pulse
+                if timebin_data is not None:
+                    pulse_counts = self._extract_pulse_counts_from_timebin_data(
+                        timebin_data, relative_pulse_idx, self.pulse_period_seconds, binwidth_ps
+                    )
+                else:
+                    pulse_counts = {ch: random.randint(0, max(1, count//num_pulses_in_interval)) 
+                                  for ch, count in total_counts.items()}
+                
+                # Record data with correct global pulse_id
+                self.results.pulse_counts.append(pulse_counts)
+                self.results.pulse_ids.append(pulse_id)
+                self.results.pulse_timestamps.append(timestamp)
+                self.results.measurement_times.append(measure_time / num_pulses_in_interval)
+                self.results.pulses_received += 1
 
-        # Calculate final statistics
-        self.results.total_runtime_seconds = time.time() - start_time
-        if self.results.total_runtime_seconds > 0:
-            self.results.average_detection_rate_hz = self.results.pulses_with_counts / self.results.total_runtime_seconds
+                # Check if we detected anything
+                total_counts_this_pulse = sum(pulse_counts.values())
+                if total_counts_this_pulse > 0:
+                    self.results.pulses_with_counts += 1
+                    self.logger.debug(f"Pulse {pulse_id}: {total_counts_this_pulse} total counts - {pulse_counts}")
+                else:
+                    self.logger.debug(f"Pulse {pulse_id}: No counts detected")
+                    
+        except Exception as e:
+            self.logger.error(f"Error in interval measurement: {e}")
+            self.results.errors.append(f"Interval measurement: {str(e)}")
     
     def _extract_pulse_counts_from_timebin_data(self, timebin_data: any, pulse_id: int, pulse_period_seconds: float, binwidth_ps: int) -> Dict[int, int]:
         """
@@ -865,6 +996,15 @@ class BobCPU:
             info["timetagger_controller"] = self.timetagger_controller.get_status()
         
         return info
+    
+    def set_interval_callback(self, callback):
+        """
+        Set a callback function to be called after each measurement interval.
+        
+        Args:
+            callback: Function with signature (interval_idx, pulse_start_idx, pulse_end_idx) -> None
+        """
+        self.interval_callback = callback
         
     def __del__(self):
         """Cleanup on destruction."""
@@ -907,7 +1047,10 @@ if __name__ == "__main__":
         test_fraction=0.25,
         error_threshold=0.61,
         pa_compression_rate=0.5,
-        num_threads=1
+        num_threads=1,
+        
+        # Synchronization (resync every 200 pulses to prevent timing drift)
+        sync_interval=200
     )
     
     # Create Bob CPU instance

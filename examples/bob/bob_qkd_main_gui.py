@@ -108,8 +108,15 @@ class BobQKDGUI(ctk.CTk):
         self.error_threshold_var = ctk.StringVar(value="0.6")
         self.pa_compression_var = ctk.StringVar(value="0.5")
         
+        # Synchronization
+        self.use_sync_intervals_var = ctk.BooleanVar(value=True)
+        self.sync_interval_var = ctk.StringVar(value="500")
+        
         # Display
         self.show_live_var = ctk.BooleanVar(value=True)
+        
+        # Interval statistics tracking
+        self.interval_stats = []  # List of (interval_idx, pulses_detected, total_pulses)
 
     def process_gui_updates(self):
         """Process items from the GUI update queue."""
@@ -247,6 +254,20 @@ class BobQKDGUI(ctk.CTk):
         
         ctk.CTkLabel(input_frame, text="PA Compression:").grid(row=row, column=0, sticky="w", padx=5)
         ctk.CTkEntry(input_frame, textvariable=self.pa_compression_var, width=100).grid(row=row, column=1, padx=5)
+        row += 1
+        
+        # Synchronization
+        ctk.CTkLabel(input_frame, text="Synchronization", font=("Arial", 12, "bold")).grid(
+            row=row, column=0, columnspan=4, pady=(10, 5), sticky="w")
+        row += 1
+        
+        ctk.CTkCheckBox(input_frame, text="Enable Sync Intervals", 
+                       variable=self.use_sync_intervals_var).grid(
+            row=row, column=0, columnspan=2, sticky="w", padx=5)
+        
+        ctk.CTkLabel(input_frame, text="Sync Every (pulses):").grid(row=row, column=2, sticky="w", padx=5)
+        ctk.CTkEntry(input_frame, textvariable=self.sync_interval_var, width=100).grid(row=row, column=3, padx=5)
+        row += 1
 
     def setup_control_area(self, parent):
         """Setup control buttons and switches"""
@@ -354,6 +375,11 @@ class BobQKDGUI(ctk.CTk):
             
             # Create Bob CPU
             self.bob_cpu = BobCPU(config)
+            
+            # Register interval callback for live updates
+            if config.sync_interval and config.sync_interval > 0:
+                self.bob_cpu.set_interval_callback(self.on_interval_complete)
+                self.interval_stats = []
             
             # Initialize system
             if not self.bob_cpu.initialize_system():
@@ -631,6 +657,16 @@ class BobQKDGUI(ctk.CTk):
         channels_str = self.detector_channels_var.get()
         detector_channels = [int(ch.strip()) for ch in channels_str.split(",")]
         
+        # Get sync interval (None if disabled or invalid)
+        sync_interval = None
+        if self.use_sync_intervals_var.get():
+            try:
+                sync_interval = int(self.sync_interval_var.get())
+                if sync_interval <= 0:
+                    sync_interval = None
+            except ValueError:
+                sync_interval = None
+        
         return BobConfig(
             num_expected_pulses=int(self.num_pulses_var.get()),
             pulse_period_seconds=float(self.pulse_period_var.get()),
@@ -651,8 +687,49 @@ class BobQKDGUI(ctk.CTk):
             test_fraction=float(self.test_fraction_var.get()),
             error_threshold=float(self.error_threshold_var.get()),
             pa_compression_rate=float(self.pa_compression_var.get()),
+            sync_interval=sync_interval
         )
 
+    def on_interval_complete(self, interval_idx: int, pulse_start_idx: int, pulse_end_idx: int):
+        """
+        Callback invoked after each measurement interval completes.
+        Updates GUI with interval statistics.
+        """
+        if not self.bob_cpu:
+            return
+        
+        # Calculate stats for this interval
+        num_pulses_in_interval = pulse_end_idx - pulse_start_idx
+        pulses_with_counts = 0
+        
+        # Count how many pulses in this interval had detections
+        for pulse_id in range(pulse_start_idx, pulse_end_idx):
+            if pulse_id < len(self.bob_cpu.results.pulse_counts):
+                counts = self.bob_cpu.results.pulse_counts[pulse_id]
+                if sum(counts.values()) > 0:
+                    pulses_with_counts += 1
+        
+        # Store interval stats
+        self.interval_stats.append((interval_idx, pulses_with_counts, num_pulses_in_interval))
+        
+        # Update GUI
+        def update_interval_display():
+            detection_rate = (pulses_with_counts / num_pulses_in_interval * 100) if num_pulses_in_interval > 0 else 0
+            msg = f"Interval {interval_idx + 1}: {pulses_with_counts}/{num_pulses_in_interval} pulses detected ({detection_rate:.1f}%)"
+            self.log_message(msg)
+            
+            # Update progress
+            self.update_progress(pulse_end_idx, self.total_pulses)
+            
+            # Show most recent detection in live view if enabled
+            if self.show_live_var.get() and pulse_end_idx > 0:
+                last_pulse_idx = pulse_end_idx - 1
+                if last_pulse_idx < len(self.bob_cpu.results.pulse_counts):
+                    counts = self.bob_cpu.results.pulse_counts[last_pulse_idx]
+                    self.add_detection_to_live_view(last_pulse_idx, counts)
+        
+        self.schedule_gui_update(update_interval_display)
+    
     def on_live_view_toggle(self):
         """Handle live view toggle"""
         if not self.show_live_var.get():

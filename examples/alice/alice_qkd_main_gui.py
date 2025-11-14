@@ -110,6 +110,10 @@ class AliceQKDGUI(ctk.CTk):
         self.error_threshold_var = ctk.StringVar(value="0.6")
         self.pa_compression_var = ctk.StringVar(value="0.5")
         
+        # Synchronization
+        self.use_sync_intervals_var = ctk.BooleanVar(value=True)
+        self.sync_interval_var = ctk.StringVar(value="500")
+        
         # Display
         self.show_live_var = ctk.BooleanVar(value=True)
 
@@ -251,6 +255,20 @@ class AliceQKDGUI(ctk.CTk):
         
         ctk.CTkLabel(input_frame, text="PA Compression:").grid(row=row, column=0, sticky="w", padx=5)
         ctk.CTkEntry(input_frame, textvariable=self.pa_compression_var, width=100).grid(row=row, column=1, padx=5)
+        row += 1
+        
+        # Synchronization
+        ctk.CTkLabel(input_frame, text="Synchronization", font=("Arial", 12, "bold")).grid(
+            row=row, column=0, columnspan=4, pady=(10, 5), sticky="w")
+        row += 1
+        
+        ctk.CTkCheckBox(input_frame, text="Enable Sync Intervals", 
+                       variable=self.use_sync_intervals_var).grid(
+            row=row, column=0, columnspan=2, sticky="w", padx=5)
+        
+        ctk.CTkLabel(input_frame, text="Sync Every (pulses):").grid(row=row, column=2, sticky="w", padx=5)
+        ctk.CTkEntry(input_frame, textvariable=self.sync_interval_var, width=100).grid(row=row, column=3, padx=5)
+        row += 1
 
     def setup_control_area(self, parent):
         """Setup control buttons and switches"""
@@ -621,6 +639,16 @@ class AliceQKDGUI(ctk.CTk):
 
     def create_config_from_gui(self) -> AliceConfig:
         """Create AliceConfig from GUI inputs"""
+        # Get sync interval (None if disabled or invalid)
+        sync_interval = None
+        if self.use_sync_intervals_var.get():
+            try:
+                sync_interval = int(self.sync_interval_var.get())
+                if sync_interval <= 0:
+                    sync_interval = None
+            except ValueError:
+                sync_interval = None
+        
         return AliceConfig(
             num_pulses=int(self.num_pulses_var.get()),
             pulse_period_seconds=float(self.pulse_period_var.get()),
@@ -641,6 +669,7 @@ class AliceQKDGUI(ctk.CTk):
             test_fraction=float(self.test_fraction_var.get()),
             error_threshold=float(self.error_threshold_var.get()),
             pa_compression_rate=float(self.pa_compression_var.get()),
+            sync_interval=sync_interval
         )
 
     def on_live_view_toggle(self):
