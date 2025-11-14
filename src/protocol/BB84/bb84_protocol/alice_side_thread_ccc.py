@@ -672,6 +672,8 @@ class AliceThread():
                 self._mismatched_bits.append((self._common_test_indices[i], self._alice_test_bits[i], self._bob_test_bits[i], self._detected_bases[self._common_test_indices[i]]))
         
         print(f"Mismatched bits: {self._mismatched_bits}")
+        # Print basis from mismatched bits
+        print(f"Mismatched bases: {[bit[3] for bit in self._mismatched_bits]}")
 
         logger.debug("Test bits check: %s", self._bits_check)
         self.failed_percentage = self._bits_check.count(False) / len(self._bits_check) * 100

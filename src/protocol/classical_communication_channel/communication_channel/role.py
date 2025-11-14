@@ -67,8 +67,8 @@ class Role(ABC):
         self._authentication_size = 0
         self._frame_size_bytes = frame_size_bytes
         # Use 4 bytes for header to support payloads up to 4GB (increased from dynamic calculation)
-        # Old calculation: ceil(ceil(math.log2(self._frame_size_bytes)) / 8) gave only 2 bytes for 4KB frames
-        self._frame_size_header_size_in_bytes = 4  # Supports up to 4,294,967,295 bytes
+        self._frame_size_header_size_in_bytes = ceil(ceil(math.log2(self._frame_size_bytes)) / 8) # old calculation: gave only 2 bytes for 4KB frames
+        # self._frame_size_header_size_in_bytes = 4  # Supports up to 4,294,967,295 bytes
         self._round_trip_time = 2 * latency_seconds if latency_seconds else 0
         self.total_time_sleep_inbox = 0
         self.total_time_sleep_outbox = 0
@@ -240,8 +240,8 @@ class Role(ABC):
         self.message_sent.append(("S", self.number_messages_sent, time.perf_counter(), len(data)))
         self.number_messages_sent += 1
         self.total_time_latency_per_message += self.latency if self.latency else 0
-        packet_size_w_mac = self._get_sendable_packet(data)
-        self.total_size_w_mac_messages += len(packet_size_w_mac)
+        # packet_size_w_mac = self._get_sendable_packet(data)
+        # self.total_size_w_mac_messages += len(packet_size_w_mac)
 
             #thread_id, message_inside = pickle.loads(data)
 

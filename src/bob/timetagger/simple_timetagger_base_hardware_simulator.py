@@ -255,6 +255,7 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
             if not self.counter:
                 return {'error': 'Failed to set measurement duration'}
             
+            start_time = time.time()
             # Clear and measure (same as measure_for_duration)
             self.counter.clear()
             self.counter.startFor(int(duration_seconds * 1e12))
@@ -264,6 +265,12 @@ class SimpleTimeTaggerHardware(SimpleTimeTagger):
             self.logger.debug(f" Waiting for measurement to finish (~{duration_seconds}s)...")
             self.counter.waitUntilFinished()
             self.logger.debug(" Measurement finished.")
+            end_time = time.time() - start_time
+            print(f" DEBUG: Measurement took {end_time:.2f}s")
+            #save in a file this time
+            with open("measurement_time.txt", "a") as f:
+                f.write(f"{end_time:.4f}, expected: {duration_seconds:.4f}\n")
+            f.close()
 
             # Get raw 2D time-binned data 
             timebin_data = self.counter.getData(rolling=False)

@@ -653,15 +653,15 @@ class AliceCPU:
                 print(f"       (Rotation time: {rotation_time:.3f}s)")
                 print(f"   ➡️  Polarization set to {pol_output.angle_degrees}°")
 
-                # Wait until the scheduled laser fire time for consistent timing
-                current_time = time.time()
-                time_until_laser = target_laser_time - current_time
+                # # Wait until the scheduled laser fire time for consistent timing
+                # current_time = time.time()
+                # time_until_laser = target_laser_time - current_time
                 
-                if time_until_laser > 0:
-                    print(f"🔸 Pulse {pulse_id}: --------------------------> WAITING {time_until_laser:.3f}s to fire laser at scheduled time")
-                    time.sleep(time_until_laser)
-                elif time_until_laser < -0.001:  # More than 1ms late
-                    self.logger.warning(f" ⚠️  Pulse {pulse_id}: --------------------------> {-time_until_laser:.3f}s LATE! Polarization took too long.")
+                # if time_until_laser > 0:
+                #     print(f"🔸 Pulse {pulse_id}: --------------------------> WAITING {time_until_laser:.3f}s to fire laser at scheduled time")
+                #     time.sleep(time_until_laser)
+                # elif time_until_laser < -0.001:  # More than 1ms late
+                #     self.logger.warning(f" ⚠️  Pulse {pulse_id}: --------------------------> {-time_until_laser:.3f}s LATE! Polarization took too long.")
                 
 
                 # Fire laser

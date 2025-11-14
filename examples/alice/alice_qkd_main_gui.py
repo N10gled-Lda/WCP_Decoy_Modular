@@ -82,7 +82,7 @@ class AliceQKDGUI(ctk.CTk):
     def setup_variables(self):
         """Initialize all GUI control variables"""
         # Quantum parameters
-        self.num_pulses_var = ctk.StringVar(value="200")
+        self.num_pulses_var = ctk.StringVar(value="2000")
         self.pulse_period_var = ctk.StringVar(value="0.4")
 
         # Hardware
@@ -106,7 +106,7 @@ class AliceQKDGUI(ctk.CTk):
         
         # Post-processing
         self.enable_post_processing_var = ctk.BooleanVar(value=True)
-        self.test_fraction_var = ctk.StringVar(value="0.25")
+        self.test_fraction_var = ctk.StringVar(value="0.99")
         self.error_threshold_var = ctk.StringVar(value="0.6")
         self.pa_compression_var = ctk.StringVar(value="0.5")
         
